@@ -5,8 +5,10 @@ import RobotUtil as rt
 
 from mujoco import viewer
 
-from actions import GoTo, GripperState, build_action_sequence, CommonPoses
+from actions import GoTo, GripperState, build_action_sequence, CommonPoses, OpenGripper, CloseGripper
 from inverse_kinematics import IKSolver
+from scipy.spatial.transform import Rotation as R
+import time
 
 
 ROOT_MODEL_XML = "franka_emika_panda/panda_torque_table.xml" 
@@ -99,38 +101,19 @@ def main():
 
     ik_solver = IKSolver(
         model,
-        max_iterations=1000,
-        step_size=0.1,
-        rotation_tolerance=0.01,
-        W=np.diag([100, 1, 1, 1, 1, 1, 1]),
+        # max_iterations=1000,
+        # step_size=0.1,
+        # rotation_tolerance=0.01,
+        # W=np.diag([100, 1, 1, 1, 1, 1, 1]),
         # W=np.eye(7),
         # C=np.diag([1e4] * 6)
     )
 
-    # print(data.xquat[ik_solver.body_id].copy())
-    # exit()
-
-    target_position = np.array([EndofTable - 0.145, 0.0, 0.05])
-    target_orientation = data.xquat[ik_solver.body_id].copy()
-    target_pose = (target_position, target_orientation)
-    # Ideally, q should be CommonPoses.PreInitialGrasp
-    q, success, error = ik_solver.solve(data, target_pose)
-    print(f'{success=}, {error=}')
-
-    actions[2] = GoTo(q)
-
-    # # exit()
-
-    # data.qpos[ARM_INDEX] = q
-    # data.qvel[ARM_INDEX] = 0.0
-    # data.qpos[[7, 8]] = [GripperState.Open] * 2
-
-    # mj.mj_forward(model, data)
-
-    # print(f'{data.qpos[ARM_INDEX].copy()=}')
-    # print(f'{data.xpos[ik_solver.body_id].copy()=}')
-    # print(f'{data.xquat[ik_solver.body_id].copy()=}')
-    # exit()
+    # target_position = np.array([EndofTable-0.16, 0.3, 0.315])
+    # target_orientation = data.xquat[ik_solver.body_id].copy()
+    # target_pose = (target_position, target_orientation)
+    # q, success, error = ik_solver.solve(data, target_pose)
+    # print(f'{success=}, {error=}')
 
     v = viewer.launch_passive(model, data)
     v.cam.distance = 3.0
@@ -141,22 +124,24 @@ def main():
 
     try:
         while v.is_running():
+            input()
             for action in actions:
                 print(action)
 
-                time, done = 0.0, False
+                t, done = 0.0, False
 
                 while not done:
-                    torques, done = action.control(model, data, time)
+                    torques, done = action.control(model, data, t)
 
                     data.ctrl[:7] = torques + data.qfrc_bias[:7]
 
                     mj.mj_step(model, data)
                     v.sync()
 
-                    time += model.opt.timestep
+                    t += model.opt.timestep
 
-                input()
+                print(data.xpos[mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY, "hand")])
+                time.sleep(0.1)
 
             v.sync()
 

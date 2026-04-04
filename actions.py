@@ -101,15 +101,48 @@ class OpenGripper:
 @dataclass(frozen=True)
 class CommonPoses:
     Home              = [0.0, -0.5, 0.0, -2.0, 0.0, 1.5,  0.8]
-    PreInitialGrasp   = [0.0, 0.65, 0.0, -2.0, 0.0, 2.65, 0.8]  # TODO: Construct from initial block pose
-    LeftShelfDrop     = []
-    PreLeftShelfGrasp = []
+    PreInitialGrasp   = [0.0, 0.64928, 0.0, -2.0328, 0.0, 2.6822, 0.8]  # TODO: Construct from initial block pose
+    ResetPoint        = [0.0, -0.69227,  0.0, -2.6583,  0.0, 1.9659,  0.8]
+    
+    LeftShelfAbove1 = [ 0.2329, -0.2621,  0.5974, -2.6448,  0.2213,  2.4143,  1.4477]
+    LeftShelfPreGrasp1 = [ 0.1515,  0.1515,  0.0049, -2.8248,  1.7249,  1.5972,  0.9632]
+    LeftShelfGrasp1 = [ 0.2346,  0.2121,  0.0905, -2.7754,  1.8876,  1.6378,  0.9413]
+    RightShelf1 = [-0.1888,  0.3682, -0.0474, -2.4325, -1.7854,  1.6639,  0.4707]
+    
+    LeftShelfAbove2 = [0.1994, 0.058, 0.4267, -2.3298, -0.0346, 2.3824, 1.4504]
+    LeftShelfPreGrasp2 = [0.1234, 0.353, -0.0128, -2.4606, 1.6778, 1.6026, 1.1266]
+    LeftShelfGrasp2 = [0.1873, 0.3976, 0.0479, -2.4216, 1.7852, 1.6609, 1.1109]
+    RightShelf2 = [-0.1662, -0.2031, -0.0871, -2.4902, -1.7509, 1.7481, -0.04]
+    
+    LeftShelfAbove3 = [ 0.2447,  0.4316,  0.2632, -1.7997, -0.1364,  2.2139,  1.3668]
+    LeftShelfPreGrasp3 = [ 0.1045,  0.6425, -0.0262, -1.9396,  1.65  ,  1.6019,  1.359 ]
+    LeftShelfGrasp3 = [ 0.1613,  0.6787,  0.0144, -1.9042,  1.7129,  1.6696,  1.3509]
+    RightShelf3 = [-0.0398, -0.4243, -0.1793, -2.1716, -1.6804,  1.7576, -0.5856]
 
 
-def build_action_sequence(intial_block_pose):
+def build_action_sequence(poses):
     return [
         GoTo(CommonPoses.Home),
         OpenGripper(),
         GoTo(CommonPoses.PreInitialGrasp),
         CloseGripper(),
+        GoTo(CommonPoses.ResetPoint),
+        GoTo(CommonPoses.LeftShelfAbove1),
+        # GoTo(CommonPoses.LeftShelfAbove2),
+        # GoTo(CommonPoses.LeftShelfAbove3),
+        OpenGripper(),
+        GoTo(CommonPoses.ResetPoint),
+        GoTo(CommonPoses.LeftShelfPreGrasp1),
+        GoTo(CommonPoses.LeftShelfGrasp1),
+        # GoTo(CommonPoses.LeftShelfPreGrasp2),
+        # GoTo(CommonPoses.LeftShelfGrasp2),
+        # GoTo(CommonPoses.LeftShelfPreGrasp3),
+        # GoTo(CommonPoses.LeftShelfGrasp3),
+        CloseGripper(),
+        GoTo(CommonPoses.ResetPoint),
+        GoTo(CommonPoses.RightShelf1),
+        # GoTo(CommonPoses.RightShelf2),
+        # GoTo(CommonPoses.RightShelf3),
+        OpenGripper(),
+        GoTo(CommonPoses.Home)
     ]
