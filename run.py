@@ -1,14 +1,14 @@
 import numpy as np
 import xml.etree.ElementTree as ET
 import RobotUtil as rt
+import time
+import mujoco as mj
 
 from actions import build_action_sequence, CommonPoses
 from kinematics import PandaKinematics
 from inverse_kinematics import IKSolver
 from motion_planning import RRTPlanner
 from runtime import MujocoRuntime
-import time
-import mujoco as mj
 from mujoco import viewer
 
 
@@ -89,6 +89,7 @@ def build_env():
 
 def main():
     build_env()
+
     robot_model = PandaKinematics(ROOT_MODEL_XML)
     ik_solver = IKSolver(robot_model)
     planner = RRTPlanner(robot_model, BLOCKS)

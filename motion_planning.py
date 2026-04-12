@@ -1,7 +1,5 @@
 import numpy as np
 
-from utils import sphere_aabb_collision
-
 
 class RRTPlanner:
     def __init__(
@@ -20,14 +18,21 @@ class RRTPlanner:
         self.goal_threshold = goal_threshold
         self.joint_limits = self.robot_model.joint_limits.copy()
 
-        self.obs_centers = np.array([o[1] for o in obstacles], dtype=float)
-        self.obs_halfs = np.array([o[2] for o in obstacles], dtype=float)
+        self.obstacle_centers = np.array([o[1] for o in obstacles], dtype=float)
+        self.obstacle_half_extents = np.array([o[2] for o in obstacles], dtype=float)
 
     def _is_collision_free(self, q):
+        obstacles_min = self.obstacle_centers - self.obstacle_half_extents
+        obstacles_max = self.obstacle_centers + self.obstacle_half_extents
+
         for _, point, radius in self.robot_model.collision_sphere_centers(q):
-            for i in range(len(self.obs_centers)):
-                if sphere_aabb_collision(point, radius, self.obs_centers[i], self.obs_halfs[i]):
-                    return False
+            closest = np.clip(point, obstacles_min, obstacles_max)
+
+            difference = point - closest
+            difference_squared = np.einsum('ij,ij->i', difference, difference)
+
+            if np.any(difference_squared < radius ** 2):
+                return False
 
         return True
 
