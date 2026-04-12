@@ -1,20 +1,9 @@
 import numpy as np
 import pinocchio as pin
+import hppfcl
 
 from dataclasses import dataclass
 from scipy.spatial.transform import Rotation as R
-
-
-LINK_SPHERES = {
-    "link1": 0.08,
-    "link2": 0.08,
-    "link3": 0.08,
-    "link4": 0.08,
-    "link5": 0.07,
-    "link6": 0.06,
-    "link7": 0.05,
-    "hand": 0.06,
-}
 
 
 @dataclass(frozen=True)
@@ -23,17 +12,17 @@ class Pose:
     orientation: np.ndarray
 
 
-@dataclass(frozen=True)
-class CollisionSphere:
-    frame: str
-    radius: float
-
-
 class PandaKinematics:
-    def __init__(self, mjcf_path, ee_frame="hand", collision_spheres=None):
+    def __init__(self, mjcf_path, ee_frame="hand"):
         self.mjcf_path = mjcf_path
         self.model = pin.buildModelFromMJCF(mjcf_path)
         self.data = self.model.createData()
+        self.collision_model = pin.buildGeomFromMJCF(
+            self.model,
+            mjcf_path,
+            pin.GeometryType.COLLISION,
+        )
+        self.collision_data = pin.GeometryData(self.collision_model)
 
         self.arm_joint_ids = [self.model.getJointId(f"joint{i}") for i in range(1, 8)]
         self.ee_frame_id = self.model.getFrameId(ee_frame)
@@ -44,16 +33,13 @@ class PandaKinematics:
             self.model.upperPositionLimit[:7],
         ])
 
-        spheres = collision_spheres if collision_spheres is not None else LINK_SPHERES
-        self.collision_spheres = [CollisionSphere(name, radius) for name, radius in spheres.items()]
-
     def clip(self, q):
-        q = np.asarray(q, dtype=float)
+        q = np.asarray(q, dtype=np.float32)
 
         return np.clip(q, self.joint_limits[:, 0], self.joint_limits[:, 1])
 
     def neutral(self):
-        return np.zeros(7, dtype=float)
+        return np.zeros(7, dtype=np.float32)
 
     def to_configuration(self, q):
         q_full = pin.neutral(self.model)
@@ -97,17 +83,40 @@ class PandaKinematics:
 
         return J[:, :7].copy()
 
-    def collision_sphere_centers(self, q):
+    def _update_geometry(self, q):
         q_full = self.to_configuration(q)
-
         pin.forwardKinematics(self.model, self.data, q_full)
         pin.updateFramePlacements(self.model, self.data)
+        pin.updateGeometryPlacements(
+            self.model,
+            self.data,
+            self.collision_model,
+            self.collision_data,
+            q_full,
+        )
 
-        centers = []
-        for sphere in self.collision_spheres:
-            frame_id = self.model.getFrameId(sphere.frame)
-            placement = self.data.oMf[frame_id]
+    def collides_with_boxes(self, q, box_centers, box_halfs):
+        self._update_geometry(q)
 
-            centers.append((sphere.frame, placement.translation.copy(), sphere.radius))
+        request = hppfcl.CollisionRequest()
+        for geometry_object, placement in zip(
+            self.collision_model.geometryObjects,
+            self.collision_data.oMg,
+        ):
+            robot_transform = hppfcl.Transform3f(placement.rotation, placement.translation)
+            for center, half in zip(box_centers, box_halfs):
+                box = hppfcl.Box(*(2.0 * np.asarray(half, dtype=np.float32)))
+                box_transform = hppfcl.Transform3f(np.eye(3), np.asarray(center, dtype=np.float32))
+                result = hppfcl.CollisionResult()
+                hppfcl.collide(
+                    geometry_object.geometry,
+                    robot_transform,
+                    box,
+                    box_transform,
+                    request,
+                    result,
+                )
+                if result.isCollision():
+                    return True
 
-        return centers
+        return False

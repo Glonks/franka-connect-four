@@ -1,7 +1,5 @@
 import numpy as np
 
-from utils import sphere_aabb_collision
-
 
 class RRTPlanner:
     def __init__(
@@ -24,12 +22,7 @@ class RRTPlanner:
         self.obs_halfs = np.array([o[2] for o in obstacles], dtype=float)
 
     def _is_collision_free(self, q):
-        for _, point, radius in self.robot_model.collision_sphere_centers(q):
-            for i in range(len(self.obs_centers)):
-                if sphere_aabb_collision(point, radius, self.obs_centers[i], self.obs_halfs[i]):
-                    return False
-
-        return True
+        return not self.robot_model.collides_with_boxes(q, self.obs_centers, self.obs_halfs)
 
     def _is_edge_free(self, q1, q2, num_checks=10):
         for t in np.linspace(0.0, 1.0, num_checks):
