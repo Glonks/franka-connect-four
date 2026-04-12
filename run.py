@@ -1,14 +1,15 @@
 import numpy as np
-import mujoco as mj
 import xml.etree.ElementTree as ET
 import RobotUtil as rt
 
-from mujoco import viewer
-
-from actions import GoTo, GripperState, build_action_sequence, CommonPoses, OpenGripper, CloseGripper
+from actions import build_action_sequence, CommonPoses
+from kinematics import PandaKinematics
 from inverse_kinematics import IKSolver
-from scipy.spatial.transform import Rotation as R
+from motion_planning import RRTPlanner
+from runtime import MujocoRuntime
 import time
+import mujoco as mj
+from mujoco import viewer
 
 
 ROOT_MODEL_XML = "franka_emika_panda/panda_torque_table.xml" 
@@ -88,66 +89,43 @@ def build_env():
 
 def main():
     build_env()
+    robot_model = PandaKinematics(ROOT_MODEL_XML)
+    ik_solver = IKSolver(robot_model)
+    planner = RRTPlanner(robot_model, BLOCKS)
 
-    actions = build_action_sequence(None)
+    actions = build_action_sequence(
+        robot_model,
+        ik_solver,
+        planner
+    )
 
     model = mj.MjModel.from_xml_path(MODEL_XML)
     data = mj.MjData(model)
+    runtime = MujocoRuntime(model, data, ARM_INDEX)
+    runtime.set_configuration(CommonPoses.Home)
 
-    # Init to Home
-    data.qpos[ARM_INDEX] = CommonPoses.Home
-    data.qvel[ARM_INDEX] = 0.0
-    mj.mj_forward(model, data)
+    with viewer.launch_passive(model, data) as v:
+        v.cam.distance = 3.0
+        v.cam.azimuth += 90
 
-    ik_solver = IKSolver(
-        model,
-        # max_iterations=1000,
-        # step_size=0.1,
-        # rotation_tolerance=0.01,
-        # W=np.diag([100, 1, 1, 1, 1, 1, 1]),
-        # W=np.eye(7),
-        # C=np.diag([1e4] * 6)
-    )
+        for action in actions:
+            print(action)
 
-    # target_position = np.array([EndofTable-0.16, 0.3, 0.315])
-    # target_orientation = data.xquat[ik_solver.body_id].copy()
-    # target_pose = (target_position, target_orientation)
-    # q, success, error = ik_solver.solve(data, target_pose)
-    # print(f'{success=}, {error=}')
+            t, done = 0.0, False
 
-    v = viewer.launch_passive(model, data)
-    v.cam.distance = 3.0
-    v.cam.azimuth += 90
+            while not done:
+                if not v.is_running():
+                    break
 
-    # print(q)
-    # print(data.xquat[ik_solver.body_id].copy())
+                command, done = action.control(runtime.get_state(), t)
+                runtime.step(command)
+                v.sync()
 
-    try:
-        while v.is_running():
-            input()
-            for action in actions:
-                print(action)
+                t += runtime.dt
 
-                t, done = 0.0, False
-
-                while not done:
-                    torques, done = action.control(model, data, t)
-
-                    data.ctrl[:7] = torques + data.qfrc_bias[:7]
-
-                    mj.mj_step(model, data)
-                    v.sync()
-
-                    t += model.opt.timestep
-
-                print(data.xpos[mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY, "hand")])
-                time.sleep(0.1)
-
-            v.sync()
-
-    finally:
-        if v is not None:
-            v.close()
+            time.sleep(0.1)
+    
+    time.sleep(0.1)
 
 
 if __name__ == '__main__':
