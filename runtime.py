@@ -12,6 +12,7 @@ KD = np.array([8, 8, 6, 5, 4, 3, 2], dtype=float)
 class RobotState:
     q: np.ndarray
     qd: np.ndarray
+    gripper_q: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class MujocoRuntime:
         return RobotState(
             q=self.data.qpos[self.arm_indices].copy(),
             qd=self.data.qvel[self.arm_indices].copy(),
+            gripper_q=self.data.qpos[7:9].copy(),
         )
 
     def step(self, command: ControlCommand):

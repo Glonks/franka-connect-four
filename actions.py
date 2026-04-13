@@ -118,17 +118,18 @@ class GoTo:
 
         return self.robot_model.clip(np.asarray(self.target, dtype=np.float64))
 
-    def _build_waypoints(self, q_start, q_goal):
-        path = self.planner.plan(q_start, q_goal)
+    def _build_waypoints(self, q_start, q_goal, gripper_q):
+        path = self.planner.plan(q_start, q_goal, gripper_q=gripper_q)
         if path is None:
             raise RuntimeError("Motion planner failed to find a collision-free path")
 
         return path
 
-    def _plan(self, q_start):
+    def _plan(self, state):
+        q_start = state.q.copy()
         q_goal = self._resolve_goal(q_start)
 
-        waypoints = self._build_waypoints(q_start, q_goal)
+        waypoints = self._build_waypoints(q_start, q_goal, state.gripper_q.copy())
 
         self._trajectory = JointWaypointTrajectory(
             waypoints,
@@ -137,10 +138,8 @@ class GoTo:
         )
 
     def control(self, state, time):
-        q = state.q.copy()
-
         if self._trajectory is None:
-            self._plan(q)
+            self._plan(state)
 
         q_des, qd_des = self._trajectory.sample(time)
         done = time >= (self._trajectory.duration + self.hold_time)

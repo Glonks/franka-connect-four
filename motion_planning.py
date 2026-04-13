@@ -25,11 +25,11 @@ class RRTPlanner:
         self.obstacle_centers = np.array([o[1] for o in obstacles], dtype=float)
         self.obstacle_half_extents = np.array([o[2] for o in obstacles], dtype=float)
 
-    def _is_collision_free(self, q):
+    def _is_collision_free(self, q, gripper_q=None):
         obstacles_min = self.obstacle_centers - self.obstacle_half_extents
         obstacles_max = self.obstacle_centers + self.obstacle_half_extents
 
-        for _, point, radius in self.robot_model.collision_sphere_centers(q):
+        for _, point, radius in self.robot_model.collision_sphere_centers(q, gripper_q=gripper_q):
             closest = np.clip(point, obstacles_min, obstacles_max)
 
             difference = point - closest
@@ -40,11 +40,11 @@ class RRTPlanner:
 
         return True
 
-    def _is_edge_free(self, q1, q2):
+    def _is_edge_free(self, q1, q2, gripper_q=None):
         for t in np.linspace(0.0, 1.0, self.free_edge_checks):
             q = q1 + t * (q2 - q1)
 
-            if not self._is_collision_free(q):
+            if not self._is_collision_free(q, gripper_q=gripper_q):
                 return False
 
         return True
@@ -81,7 +81,7 @@ class RRTPlanner:
 
         return path
 
-    def _shortcut(self, path, attempts=200):
+    def _shortcut(self, path, attempts=200, gripper_q=None):
         path = list(path)
         for _ in range(attempts):
             if len(path) <= 2:
@@ -90,24 +90,24 @@ class RRTPlanner:
             i = np.random.randint(0, len(path) - 2)
             j = np.random.randint(i + 2, len(path))
 
-            if self._is_edge_free(path[i], path[j]):
+            if self._is_edge_free(path[i], path[j], gripper_q=gripper_q):
                 path = path[: i + 1] + path[j:]
 
         return path
 
-    def plan(self, q_start, q_goal):
+    def plan(self, q_start, q_goal, gripper_q=None):
         q_start = self.robot_model.clip(np.asarray(q_start, dtype=float))
         q_goal = self.robot_model.clip(np.asarray(q_goal, dtype=float))
 
-        if not self._is_collision_free(q_start):
+        if not self._is_collision_free(q_start, gripper_q=gripper_q):
             print("Start configuration is in collision")
             return None
 
-        if not self._is_collision_free(q_goal):
+        if not self._is_collision_free(q_goal, gripper_q=gripper_q):
             print("Goal configuration is in collision")
             return None
 
-        if self._is_edge_free(q_start, q_goal):
+        if self._is_edge_free(q_start, q_goal, gripper_q=gripper_q):
             return [q_start.copy(), q_goal.copy()]
 
         tree = [q_start.copy()]
@@ -119,7 +119,7 @@ class RRTPlanner:
             q_closest = tree[closest_index]
             q_new = self.robot_model.clip(self._steer(q_closest, q_sample))
 
-            if not self._is_edge_free(q_closest, q_new):
+            if not self._is_edge_free(q_closest, q_new, gripper_q=gripper_q):
                 continue
 
             tree.append(q_new)
@@ -127,13 +127,13 @@ class RRTPlanner:
 
             if (
                 np.linalg.norm(q_new - q_goal) < self.goal_threshold and
-                self._is_edge_free(q_new, q_goal)
+                self._is_edge_free(q_new, q_goal, gripper_q=gripper_q)
             ):
                 tree.append(q_goal.copy())
                 parents.append(len(tree) - 2)
 
                 path = self._extract_path(tree, parents)
-                path = self._shortcut(path)
+                path = self._shortcut(path, gripper_q=gripper_q)
 
                 return path
 

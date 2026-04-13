@@ -14,6 +14,8 @@ LINK_SPHERES = {
     "link6": 0.06,
     "link7": 0.05,
     "hand": 0.06,
+    "left_finger": 0.025,
+    "right_finger": 0.025,
 }
 
 
@@ -55,12 +57,19 @@ class PandaKinematics:
     def neutral(self):
         return np.zeros(7, dtype=float)
 
-    def to_configuration(self, q):
+    def to_configuration(self, q, gripper_q=None):
         q_full = pin.neutral(self.model)
         q_full[:7] = self.clip(q)
 
         if q_full.shape[0] > 7:
-            q_full[7:] = 0.0
+            if gripper_q is None:
+                q_full[7:] = 0.0
+            else:
+                q_full[7:] = np.clip(
+                    np.asarray(gripper_q, dtype=float),
+                    self.model.lowerPositionLimit[7:],
+                    self.model.upperPositionLimit[7:],
+                )
 
         return q_full
 
@@ -97,8 +106,8 @@ class PandaKinematics:
 
         return J[:, :7].copy()
 
-    def collision_sphere_centers(self, q):
-        q_full = self.to_configuration(q)
+    def collision_sphere_centers(self, q, gripper_q=None):
+        q_full = self.to_configuration(q, gripper_q=gripper_q)
 
         pin.forwardKinematics(self.model, self.data, q_full)
         pin.updateFramePlacements(self.model, self.data)
