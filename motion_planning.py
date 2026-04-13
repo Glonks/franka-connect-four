@@ -24,9 +24,9 @@ class RRTPlanner:
     def _is_collision_free(self, q):
         return not self.robot_model.collides_with_boxes(q, self.obs_centers, self.obs_halfs)
 
-    def _is_edge_free(self, q1, q2, num_checks=10):
+    def _is_edge_free(self, q_1, q_2, num_checks=10):
         for t in np.linspace(0.0, 1.0, num_checks):
-            q = q1 + t * (q2 - q1)
+            q = q_1 + t * (q_2 - q_1)
 
             if not self._is_collision_free(q):
                 return False
@@ -74,7 +74,7 @@ class RRTPlanner:
             i = np.random.randint(0, len(path) - 2)
             j = np.random.randint(i + 2, len(path))
 
-            if self._is_edge_free(path[i], path[j], num_checks=15):
+            if self._is_edge_free(path[i], path[j], num_checks=100):
                 path = path[: i + 1] + path[j:]
 
         return path
@@ -91,7 +91,7 @@ class RRTPlanner:
             print("Goal configuration is in collision")
             return None
 
-        if self._is_edge_free(q_start, q_goal, num_checks=20):
+        if self._is_edge_free(q_start, q_goal, num_checks=100):
             return [q_start.copy(), q_goal.copy()]
 
         tree = [q_start.copy()]

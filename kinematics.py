@@ -33,6 +33,38 @@ class PandaKinematics:
             self.model.upperPositionLimit[:7],
         ])
 
+        self.collision_request = hppfcl.CollisionRequest()
+        self.collision_geometries = [
+            geometry_object.geometry for geometry_object in self.collision_model.geometryObjects
+        ]
+        self.bounding_radii = np.array(
+            [geometry.aabb_radius for geometry in self.collision_geometries],
+            dtype=np.float64,
+        )
+        self.local_aabb_centers = np.array(
+            [
+                (geometry.aabb_local.min_ + geometry.aabb_local.max_) / 2.0
+                for geometry in self.collision_geometries
+            ],
+            dtype=np.float64,
+        )
+        self._cached_box_signature = None
+        self._cached_boxes = []
+        self._cached_box_transforms = []
+    
+    def _update_geometry(self, q):
+        q_full = self.to_configuration(q)
+
+        pin.forwardKinematics(self.model, self.data, q_full)
+        pin.updateFramePlacements(self.model, self.data)
+        pin.updateGeometryPlacements(
+            self.model,
+            self.data,
+            self.collision_model,
+            self.collision_data,
+            q_full
+        )
+
     def clip(self, q):
         q = np.asarray(q, dtype=np.float32)
 
@@ -59,11 +91,9 @@ class PandaKinematics:
 
         placement = self.data.oMf[frame_id]
 
-        # TODO: collapse this
-        quat_xyzw = R.from_matrix(placement.rotation).as_quat()
-        quat_wxyz = np.array([quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]])
+        orientation = R.from_matrix(placement.rotation).as_quat(scalar_first=True)
 
-        return Pose(position=placement.translation.copy(), orientation=quat_wxyz)
+        return Pose(position=placement.translation.copy(), orientation=orientation)
 
     def jacobian(self, q, frame=None):
         frame_id = self.ee_frame_id if frame is None else self.model.getFrameId(frame)
@@ -83,40 +113,54 @@ class PandaKinematics:
 
         return J[:, :7].copy()
 
-    def _update_geometry(self, q):
-        q_full = self.to_configuration(q)
-        pin.forwardKinematics(self.model, self.data, q_full)
-        pin.updateFramePlacements(self.model, self.data)
-        pin.updateGeometryPlacements(
-            self.model,
-            self.data,
-            self.collision_model,
-            self.collision_data,
-            q_full,
-        )
-
     def collides_with_boxes(self, q, box_centers, box_halfs):
         self._update_geometry(q)
+        self._update_box_cache(box_centers, box_halfs)
 
-        request = hppfcl.CollisionRequest()
-        for geometry_object, placement in zip(
-            self.collision_model.geometryObjects,
+        for geometry, placement, robot_radius, local_center in zip(
+            self.collision_geometries,
             self.collision_data.oMg,
+            self.bounding_radii,
+            self.local_aabb_centers,
         ):
+            world_aabb_center = placement.rotation @ local_center + placement.translation
             robot_transform = hppfcl.Transform3f(placement.rotation, placement.translation)
-            for center, half in zip(box_centers, box_halfs):
-                box = hppfcl.Box(*(2.0 * np.asarray(half, dtype=np.float32)))
-                box_transform = hppfcl.Transform3f(np.eye(3), np.asarray(center, dtype=np.float32))
+
+            candidate_mask = (
+                np.linalg.norm(self._cached_box_centers - world_aabb_center, axis=1)
+                <= (robot_radius + self._cached_box_bounding_radii)
+            )
+            if not np.any(candidate_mask):
+                continue
+
+            for idx in np.where(candidate_mask)[0]:
                 result = hppfcl.CollisionResult()
+
                 hppfcl.collide(
-                    geometry_object.geometry,
+                    geometry,
                     robot_transform,
-                    box,
-                    box_transform,
-                    request,
-                    result,
+                    self._cached_boxes[idx],
+                    self._cached_box_transforms[idx],
+                    self.collision_request,
+                    result
                 )
+
                 if result.isCollision():
                     return True
 
         return False
+
+    def _update_box_cache(self, box_centers, box_halfs):
+        centers = np.asarray(box_centers, dtype=np.float64)
+        half_extents = np.asarray(box_halfs, dtype=np.float64)
+        signature = (centers.shape, half_extents.shape, centers.tobytes(), half_extents.tobytes())
+
+        if signature == self._cached_box_signature:
+            return
+
+        self._cached_box_signature = signature
+        self._cached_box_centers = centers
+        self._cached_box_half_extents = half_extents
+        self._cached_box_bounding_radii = np.linalg.norm(half_extents, axis=1)
+        self._cached_boxes = [hppfcl.Box(*(2.0 * half)) for half in half_extents]
+        self._cached_box_transforms = [hppfcl.Transform3f(np.eye(3), center) for center in centers]

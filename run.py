@@ -89,6 +89,7 @@ def build_env():
 
 def main():
     build_env()
+
     robot_model = PandaKinematics(ROOT_MODEL_XML)
     ik_solver = IKSolver(robot_model)
     planner = RRTPlanner(robot_model, BLOCKS)
