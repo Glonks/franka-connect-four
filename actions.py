@@ -164,10 +164,14 @@ class GripperAction:
     ):
         self.gripper_target = gripper_target
         self.duration = duration
+        self.hold_q = None
     
     def control(self, state, time):
+        if self.hold_q is None:
+            self.hold_q = state.q.copy()
+
         command = ControlCommand(
-            q_des=state.q.copy(),
+            q_des=self.hold_q.copy(),
             qd_des=np.zeros_like(state.qd),
             gripper_target=self.gripper_target
         )
@@ -217,5 +221,5 @@ def build_action_sequence(robot_model, ik_solver, planner):
         _GoTo(_pose_for(CommonPoses.ResetPoint)),
         _GoTo(_pose_for(CommonPoses.RightShelf1)),
         _OpenGripper(),
-        _GoTo(_pose_for(CommonPoses.Home)),
+        _GoTo(CommonPoses.Home),
     ]

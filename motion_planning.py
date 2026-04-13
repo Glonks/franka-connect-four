@@ -10,12 +10,16 @@ class RRTPlanner:
         max_iterations=5000,
         goal_bias=0.2,
         goal_threshold=0.3,
+        shortcut_attempts=200,
+        free_edge_checks=10
     ):
         self.robot_model = robot_model
         self.step_size = step_size
         self.max_iterations = max_iterations
         self.goal_bias = goal_bias
         self.goal_threshold = goal_threshold
+        self.shortcut_attempts = shortcut_attempts
+        self.free_edge_checks = free_edge_checks
         self.joint_limits = self.robot_model.joint_limits.copy()
 
         self.obstacle_centers = np.array([o[1] for o in obstacles], dtype=float)
@@ -36,8 +40,8 @@ class RRTPlanner:
 
         return True
 
-    def _is_edge_free(self, q1, q2, num_checks=10):
-        for t in np.linspace(0.0, 1.0, num_checks):
+    def _is_edge_free(self, q1, q2):
+        for t in np.linspace(0.0, 1.0, self.free_edge_checks):
             q = q1 + t * (q2 - q1)
 
             if not self._is_collision_free(q):
@@ -86,7 +90,7 @@ class RRTPlanner:
             i = np.random.randint(0, len(path) - 2)
             j = np.random.randint(i + 2, len(path))
 
-            if self._is_edge_free(path[i], path[j], num_checks=15):
+            if self._is_edge_free(path[i], path[j]):
                 path = path[: i + 1] + path[j:]
 
         return path
@@ -103,7 +107,7 @@ class RRTPlanner:
             print("Goal configuration is in collision")
             return None
 
-        if self._is_edge_free(q_start, q_goal, num_checks=20):
+        if self._is_edge_free(q_start, q_goal):
             return [q_start.copy(), q_goal.copy()]
 
         tree = [q_start.copy()]
