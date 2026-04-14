@@ -92,7 +92,7 @@ def main():
 
     robot_model = PandaKinematics(ROOT_MODEL_XML)
     ik_solver = IKSolver(robot_model)
-    planner = RRTPlanner(robot_model, BLOCKS)
+    planner = RRTPlanner(robot_model, BLOCKS, step_size=0.05)
 
     actions = build_action_sequence(
         robot_model,

@@ -78,11 +78,9 @@ class PandaKinematics:
 
         placement = self.data.oMf[frame_id]
 
-        # TODO: collapse this
-        quat_xyzw = R.from_matrix(placement.rotation).as_quat()
-        quat_wxyz = np.array([quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]])
+        orientation = R.from_matrix(placement.rotation).as_quat(scalar_first=True)
 
-        return Pose(position=placement.translation.copy(), orientation=quat_wxyz)
+        return Pose(position=placement.translation.copy(), orientation=orientation)
 
     def jacobian(self, q, frame=None):
         frame_id = self.ee_frame_id if frame is None else self.model.getFrameId(frame)
@@ -118,9 +116,11 @@ class PandaKinematics:
         descriptors = []
         for geometry_index, local_center, dimensions in self.collision_boxes:
             placement = self.collision_data.oMg[geometry_index]
+
             H = np.eye(4)
             H[:3, :3] = placement.rotation
             H[:3, 3] = placement.rotation @ local_center + placement.translation
+
             descriptors.append(rt.BlockDesc2Points(H, dimensions))
 
         return descriptors

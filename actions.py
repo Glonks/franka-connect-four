@@ -150,8 +150,7 @@ class GoTo:
         with np.printoptions(precision=4):
             if is_cartesian_pose(self.target):
                 position, orientation = map(np.asarray, self.target)
-
-                return f'<{self.__class__.__name__} {position=} {orientation=}>'
+                return f'<{self.__class__.__name__} position={position} orientation={orientation}>'
 
             return f'<{self.__class__.__name__} configuration={np.asarray(self.target)}>'
 
@@ -175,13 +174,13 @@ class GripperAction:
             qd_des=np.zeros_like(state.qd),
             gripper_target=self.gripper_target
         )
-
         done = time >= self.duration
 
         return command, done
 
     def __str__(self):
-        return f'<{self.__class__.__name__} target={self.gripper_target}>'
+        with np.printoptions(precision=4):
+            return f'<{self.__class__.__name__} target={self.gripper_target}>'
 
 
 def build_action_sequence(robot_model, ik_solver, planner):
