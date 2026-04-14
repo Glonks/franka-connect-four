@@ -1,4 +1,5 @@
 import functools
+from turtle import position
 import numpy as np
 
 from dataclasses import dataclass
@@ -147,12 +148,13 @@ class GoTo:
         return ControlCommand(q_des=q_des, qd_des=qd_des), done
 
     def __str__(self):
-        if is_cartesian_pose(self.target):
-            with np.printoptions(precision=4):
-                return f'<{self.__class__.__name__} position={np.asarray(self.target[0])}>'
-
         with np.printoptions(precision=4):
-            return f'<{self.__class__.__name__} q_target={np.asarray(self.target)}>'
+            if is_cartesian_pose(self.target):
+                position, orientation = map(np.asarray, self.target)
+
+                return f'<{self.__class__.__name__} {position=} {orientation=}>'
+
+            return f'<{self.__class__.__name__} configuration={np.asarray(self.target)}>'
 
 
 class GripperAction:
