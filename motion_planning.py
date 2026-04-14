@@ -1,4 +1,5 @@
 import numpy as np
+import RobotUtil as rt
 
 
 class RRTPlanner:
@@ -24,19 +25,18 @@ class RRTPlanner:
 
         self.obstacle_centers = np.array([o[1] for o in obstacles], dtype=float)
         self.obstacle_half_extents = np.array([o[2] for o in obstacles], dtype=float)
+        self.obstacle_boxes = []
+        for center, half_extents in zip(self.obstacle_centers, self.obstacle_half_extents):
+            H = np.eye(4)
+            H[:3, 3] = center
+
+            self.obstacle_boxes.append(rt.BlockDesc2Points(H, 2.0 * half_extents))
 
     def _is_collision_free(self, q, gripper_q=None):
-        obstacles_min = self.obstacle_centers - self.obstacle_half_extents
-        obstacles_max = self.obstacle_centers + self.obstacle_half_extents
-
-        for _, point, radius in self.robot_model.collision_sphere_centers(q, gripper_q=gripper_q):
-            closest = np.clip(point, obstacles_min, obstacles_max)
-
-            difference = point - closest
-            difference_squared = np.einsum('ij,ij->i', difference, difference)
-
-            if np.any(difference_squared < radius ** 2):
-                return False
+        for robot_points, robot_axes in self.robot_model.collision_box_descriptors(q, gripper_q=gripper_q):
+            for obstacle_points, obstacle_axes in self.obstacle_boxes:
+                if rt.CheckBoxBoxCollision(robot_points, robot_axes, obstacle_points, obstacle_axes):
+                    return False
 
         return True
 

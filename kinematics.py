@@ -1,22 +1,9 @@
 import numpy as np
 import pinocchio as pin
+import RobotUtil as rt
 
 from dataclasses import dataclass
 from scipy.spatial.transform import Rotation as R
-
-
-LINK_SPHERES = {
-    "link1": 0.08,
-    "link2": 0.08,
-    "link3": 0.08,
-    "link4": 0.08,
-    "link5": 0.07,
-    "link6": 0.06,
-    "link7": 0.05,
-    "hand": 0.06,
-    "left_finger": 0.025,
-    "right_finger": 0.025,
-}
 
 
 @dataclass(frozen=True)
@@ -25,17 +12,17 @@ class Pose:
     orientation: np.ndarray
 
 
-@dataclass(frozen=True)
-class CollisionSphere:
-    frame: str
-    radius: float
-
-
 class PandaKinematics:
-    def __init__(self, mjcf_path, ee_frame="hand", collision_spheres=None):
+    def __init__(self, mjcf_path, ee_frame="hand"):
         self.mjcf_path = mjcf_path
         self.model = pin.buildModelFromMJCF(mjcf_path)
         self.data = self.model.createData()
+        self.collision_model = pin.buildGeomFromMJCF(
+            self.model,
+            mjcf_path,
+            pin.GeometryType.COLLISION,
+        )
+        self.collision_data = pin.GeometryData(self.collision_model)
 
         self.arm_joint_ids = [self.model.getJointId(f"joint{i}") for i in range(1, 8)]
         self.ee_frame_id = self.model.getFrameId(ee_frame)
@@ -46,8 +33,17 @@ class PandaKinematics:
             self.model.upperPositionLimit[:7],
         ])
 
-        spheres = collision_spheres if collision_spheres is not None else LINK_SPHERES
-        self.collision_spheres = [CollisionSphere(name, radius) for name, radius in spheres.items()]
+        self.collision_boxes = []
+        for geometry_index, geometry_object in enumerate(self.collision_model.geometryObjects):
+            geometry_object.geometry.computeLocalAABB()
+
+            aabb = geometry_object.geometry.aabb_local
+            dimensions = np.asarray(aabb.max_ - aabb.min_, dtype=float)
+            if np.any(dimensions <= 0.0):
+                continue
+
+            local_center = np.asarray(0.5 * (aabb.min_ + aabb.max_), dtype=float)
+            self.collision_boxes.append((geometry_index, local_center, dimensions))
 
     def clip(self, q):
         q = np.asarray(q, dtype=float)
@@ -106,17 +102,25 @@ class PandaKinematics:
 
         return J[:, :7].copy()
 
-    def collision_sphere_centers(self, q, gripper_q=None):
+    def collision_box_descriptors(self, q, gripper_q=None):
         q_full = self.to_configuration(q, gripper_q=gripper_q)
 
         pin.forwardKinematics(self.model, self.data, q_full)
         pin.updateFramePlacements(self.model, self.data)
+        pin.updateGeometryPlacements(
+            self.model,
+            self.data,
+            self.collision_model,
+            self.collision_data,
+            q_full,
+        )
 
-        centers = []
-        for sphere in self.collision_spheres:
-            frame_id = self.model.getFrameId(sphere.frame)
-            placement = self.data.oMf[frame_id]
+        descriptors = []
+        for geometry_index, local_center, dimensions in self.collision_boxes:
+            placement = self.collision_data.oMg[geometry_index]
+            H = np.eye(4)
+            H[:3, :3] = placement.rotation
+            H[:3, 3] = placement.rotation @ local_center + placement.translation
+            descriptors.append(rt.BlockDesc2Points(H, dimensions))
 
-            centers.append((sphere.frame, placement.translation.copy(), sphere.radius))
-
-        return centers
+        return descriptors
