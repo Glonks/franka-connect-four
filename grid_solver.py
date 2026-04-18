@@ -42,6 +42,7 @@ from runtime import MujocoRuntime
 from lab3 import geometry as geo
 from lab3.rrt_obstacles import LAB3_RRT_BLOCKS
 from lab3.task_planner import PlanStep, compute_symbolic_plan
+import lab3.pattern_grid_solver
 
 ARM_INDEX = [0, 1, 2, 3, 4, 5, 6]
 ROOT_MODEL_XML = "franka_emika_panda/panda_torque_table.xml"
@@ -49,16 +50,17 @@ MODEL_XML = "franka_emika_panda/panda_torque_table_lab3.xml"
 
 # Hand targets at block height often IK into configurations the table box marks as
 # collision; bias IK + keep the palm a bit higher than block centers for planning.
-_MIN_HAND_Z = 0.14
+_MIN_HAND_Z = 0.13
 _IK_BIAS = np.asarray(CommonPoses.PreInitialGrasp, dtype=np.float64)
 
+pattern_grid_plan = lab3.pattern_grid_solver.GridSolver().plan()
 
 # Vertical / horizontal top grasp: small rotation difference about world Z.
 def grip_quaternion(grip: str) -> np.ndarray:
     if grip == "v":
-        rot = R_scipy.from_euler("xyz", [np.pi - 0.15, 0.0, 0.0])
+        rot = R_scipy.from_euler("xyz", [np.pi, 0.0, 0.0])
     else:
-        rot = R_scipy.from_euler("xyz", [np.pi - 0.15, 0.0, np.pi / 2])
+        rot = R_scipy.from_euler("xyz", [np.pi, 0.0, np.pi / 2])
     x, y, z, w = rot.as_quat()
     return np.array([w, x, y, z], dtype=np.float64)
 
@@ -193,17 +195,17 @@ def build_motion_sequence(
     def append_pick_at_world(p: np.ndarray, quat: np.ndarray) -> None:
         p_h = _hand_target(p)
         actions.append(_Open())
-        actions.append(_GoToCart(_pose(_above(p_h, dz_approach), quat)))
-        actions.append(_GoToCart(_pose(p_h, quat)))
+        actions.append(_GoTo(_pose(_above(p_h, dz_approach), quat)))
+        actions.append(_GoTo(_pose(p_h, quat)))
         actions.append(_Close())
-        actions.append(_GoToCart(_pose(_above(p_h, 0.12), quat)))
+        actions.append(_GoTo(_pose(_above(p_h, 0.12), quat)))
 
     def append_place_at_world(p: np.ndarray, quat: np.ndarray) -> None:
         p_h = _hand_target(p)
-        actions.append(_GoToCart(_pose(_above(p_h, dz_approach), quat)))
-        actions.append(_GoToCart(_pose(p_h, quat)))
+        actions.append(_GoTo(_pose(_above(p_h, dz_approach), quat)))
+        actions.append(_GoTo(_pose(p_h, quat)))
         actions.append(_Open())
-        actions.append(_GoToCart(_pose(_above(p_h, 0.12), quat)))
+        actions.append(_GoTo(_pose(_above(p_h, 0.12), quat)))
 
     for op, color, (row, col), grip in plan:
         quat = grip_quaternion(grip)
@@ -211,7 +213,7 @@ def build_motion_sequence(
             slot = st.top_stack_slot(color)
             p_stack = np.array(geo.stack_world_pose(color, slot), dtype=np.float64)
             p_grid = np.array(geo.grid_world_pose(row, col), dtype=np.float64)
-            append_pick_at_world(p_stack, quat)
+            append_pick_at_world(p_stack, grip_quaternion('h'))
             append_place_at_world(p_grid, quat)
             st.place_on_grid(color, row, col)
         elif op == "remove":
@@ -219,7 +221,7 @@ def build_motion_sequence(
             slot = st.lowest_free_slot(color)
             append_pick_at_world(p_grid, quat)
             p_stack = np.array(geo.stack_world_pose(color, slot), dtype=np.float64)
-            append_place_at_world(p_stack, quat)
+            append_place_at_world(p_stack, grip_quaternion('h'))
             st.remove_to_stack(color, row, col)
         else:
             raise ValueError(op)
@@ -233,7 +235,7 @@ def main() -> None:
     ik_solver = IKSolver(robot_model)
     planner = make_lab3_rrt(robot_model)
 
-    plan = load_symbolic_plan()
+    plan = pattern_grid_plan
     print("Symbolic plan (task_planner → motion):", plan)
     actions = build_motion_sequence(plan, robot_model, ik_solver, planner)
     print(f"Built {len(actions)} motion primitives")

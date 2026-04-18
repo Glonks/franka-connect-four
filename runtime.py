@@ -4,8 +4,8 @@ import numpy as np
 from dataclasses import dataclass
 
 
-KP = np.array([120, 120, 100, 90, 60, 40, 30], dtype=float)
-KD = np.array([8, 8, 6, 5, 4, 3, 2], dtype=float)
+KP = np.array([120, 120, 100, 90, 60, 40, 30], dtype=float) * 1.1
+KD = np.array([8, 8, 6, 5, 4, 3, 2], dtype=float) * 10
 
 
 @dataclass(frozen=True)
