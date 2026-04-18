@@ -1,0 +1,10 @@
+# Store text as LF in the repo (works across Windows/macOS/Linux).
+* text=auto eol=lf
+
+# MuJoCo / robot mesh assets — do not line-end normalize
+franka_emika_panda/assets/** binary
+*.stl binary
+*.obj binary
+*.mtl binary
+*.png binary
+*.STL binary
