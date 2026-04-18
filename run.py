@@ -12,10 +12,23 @@ import mujoco as mj
 from mujoco import viewer
 
 
-ROOT_MODEL_XML = "franka_emika_panda/panda_torque_table.xml" 
-MODEL_XML = "franka_emika_panda/panda_torque_table_shelves.xml" 
+ROOT_MODEL_XML = "franka_emika_panda/panda_torque_table.xml"
+
+# True: load pre-built Lab 3 scene (run `python lab3/build_lab3_xml.py` first).
+# False: generate connect-four + shelves into MODEL_XML via build_env().
+USE_LAB3_SCENE = True
+MODEL_XML = (
+    "franka_emika_panda/panda_torque_table_lab3.xml"
+    if USE_LAB3_SCENE
+    else "franka_emika_panda/panda_torque_table_shelves.xml"
+)
 
 EndofTable = 0.55 + 0.135 + 0.05
+
+# Obstacles for RRT when using the Lab 3 MJCF (table only; no shelf boxes).
+BLOCKS_LAB3 = [
+    ["TablePlane", [EndofTable - 0.275, 0.0, -0.005], [0.275, 0.504, 0.0051]],
+]
 
 BLOCKS=[
     ["TablePlane",[EndofTable-0.275,0.,-0.005],[0.275, 0.504, 0.0051]],
@@ -88,17 +101,16 @@ def build_env():
 
 
 def main():
-    build_env()
+    if not USE_LAB3_SCENE:
+        build_env()
 
     robot_model = PandaKinematics(ROOT_MODEL_XML)
     ik_solver = IKSolver(robot_model)
-    planner = RRTPlanner(robot_model, BLOCKS, step_size=0.05)
+    planner_blocks = BLOCKS_LAB3 if USE_LAB3_SCENE else BLOCKS
+    planner = RRTPlanner(robot_model, planner_blocks, step_size=0.05)
 
-    actions = build_action_sequence(
-        robot_model,
-        ik_solver,
-        planner
-    )
+    # Demo trajectory is still the connect-four / shelf sequence; replace when you add Lab 3 actions.
+    actions = build_action_sequence(robot_model, ik_solver, planner)
 
     model = mj.MjModel.from_xml_path(MODEL_XML)
     data = mj.MjData(model)
