@@ -9,7 +9,7 @@ on the other.
 Scene: panda_torque_table.xml + TablePlane (Lab 2 run.py) + nine thin floor
 markers (visual only, no collision) showing the 3×3 + eight free red/blue blocks.
 
-Grid cell centers match _cell_center(row, col) — use these for task planning.
+Grid cell centers match lab3.geometry.cell_center — use these for task planning.
 
 Writes: franka_emika_panda/panda_torque_table_lab3.xml
 
@@ -20,29 +20,19 @@ Run from repo root:
 from __future__ import annotations
 
 import os
+import sys
 import xml.etree.ElementTree as ET
 
 _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _REPO not in sys.path:
+    sys.path.insert(0, _REPO)
+
+from lab3 import geometry as geo
 
 ROOT_MODEL_XML = os.path.join(_REPO, "franka_emika_panda", "panda_torque_table.xml")
 OUTPUT_XML = os.path.join(_REPO, "franka_emika_panda", "panda_torque_table_lab3.xml")
 
-EndofTable = 0.55 + 0.135 + 0.05
-
-TABLE_PLANE_POS = [EndofTable - 0.275, 0.0, -0.005]
-TABLE_PLANE_SIZE = [0.275, 0.504, 0.0051]
 TABLE_PLANE_RGBA = [0.2, 0.2, 0.9, 1.0]
-
-GRID_CENTER_X = EndofTable - 0.145
-GRID_CENTER_Y = 0.0
-CELL_SPACING = 0.052
-Z_BLOCK_CENTER = 0.05
-BLOCK_HALF_SIZE = 0.02
-
-MARGIN_GRID_TO_COLUMN = 0.045
-
-# Clearance from table edge (m) so block volumes stay on the slab.
-_EDGE_CLEAR = 0.015
 
 RED_RGBA = [0.9, 0.12, 0.1, 1.0]
 BLUE_RGBA = [0.1, 0.14, 0.9, 1.0]
@@ -76,20 +66,13 @@ def _add_free_block(
         ET.SubElement(body, "freejoint")
 
 
-def _cell_center(row: int, col: int) -> tuple[float, float]:
-    x = GRID_CENTER_X + (col - 1) * CELL_SPACING
-    y = GRID_CENTER_Y + (row - 1) * CELL_SPACING
-    return (x, y)
-
-
 def _add_grid_slot_markers(worldbody: ET.Element) -> None:
-    """Nine flat decals marking where blocks may be placed — not physical blocks."""
     z = 0.002
-    half = CELL_SPACING * 0.48
+    half = geo.CELL_SPACING * 0.48
     hz = 0.0008
     for row in range(3):
         for col in range(3):
-            cx, cy = _cell_center(row, col)
+            cx, cy = geo.cell_center(row, col)
             body = ET.SubElement(
                 worldbody,
                 "body",
@@ -108,42 +91,14 @@ def _add_grid_slot_markers(worldbody: ET.Element) -> None:
             )
 
 
-def _table_x_range() -> tuple[float, float]:
-    """Table top extent in world X (box geom uses half-sizes)."""
-    cx, hx = TABLE_PLANE_POS[0], TABLE_PLANE_SIZE[0]
-    return cx - hx, cx + hx
-
-
-def _lateral_offset_from_grid_center() -> float:
-    """
-    Distance from grid center to each storage column along ±X.
-
-    The nominal layout uses a gap past the 3×3; that can push the +X (blue)
-    column past the table edge. Clamp so both red and blue block centers keep
-    the cube footprint inside the table.
-    """
-    preferred = 1.5 * CELL_SPACING + 2.0 * BLOCK_HALF_SIZE + MARGIN_GRID_TO_COLUMN
-    x_min, x_max = _table_x_range()
-    dx_cap = min(
-        GRID_CENTER_X - x_min - BLOCK_HALF_SIZE - _EDGE_CLEAR,
-        x_max - GRID_CENTER_X - BLOCK_HALF_SIZE - _EDGE_CLEAR,
-    )
-    return max(0.04, min(preferred, dx_cap))
-
-
 def _build_figure1_block_specs() -> list[tuple[int, list[float], list[float]]]:
-    dx = _lateral_offset_from_grid_center()
-    x_red = GRID_CENTER_X - dx
-    x_blue = GRID_CENTER_X + dx
-    row_y = [
-        -1.5 * CELL_SPACING,
-        -0.5 * CELL_SPACING,
-        0.5 * CELL_SPACING,
-        1.5 * CELL_SPACING,
-    ]
+    dx = geo.lateral_offset_from_grid_center()
+    x_red = geo.GRID_CENTER_X - dx
+    x_blue = geo.GRID_CENTER_X + dx
+    row_y = geo.stack_row_y()
     specs: list[tuple[int, list[float], list[float]]] = []
     for i in range(4):
-        z = Z_BLOCK_CENTER
+        z = geo.Z_BLOCK_CENTER
         specs.append((i, [x_red, row_y[i], z], RED_RGBA))
         specs.append((4 + i, [x_blue, row_y[i], z], BLUE_RGBA))
     return specs
@@ -158,9 +113,9 @@ def build_lab3_mjcf() -> ET.ElementTree:
     _add_free_block(
         worldbody,
         "TablePlane",
-        TABLE_PLANE_POS,
+        geo.TABLE_PLANE_POS,
         20,
-        TABLE_PLANE_SIZE,
+        geo.TABLE_PLANE_SIZE,
         TABLE_PLANE_RGBA,
         free=False,
     )
@@ -173,7 +128,7 @@ def build_lab3_mjcf() -> ET.ElementTree:
             f"Block{bid}",
             pos,
             20,
-            [BLOCK_HALF_SIZE, BLOCK_HALF_SIZE, BLOCK_HALF_SIZE],
+            [geo.BLOCK_HALF_SIZE, geo.BLOCK_HALF_SIZE, geo.BLOCK_HALF_SIZE],
             rgba,
             free=True,
         )
@@ -184,10 +139,12 @@ def build_lab3_mjcf() -> ET.ElementTree:
 def main() -> None:
     tree = build_lab3_mjcf()
     tree.write(OUTPUT_XML, encoding="utf-8", xml_declaration=True)
-    dx = _lateral_offset_from_grid_center()
+    dx = geo.lateral_offset_from_grid_center()
     print(f"Wrote {OUTPUT_XML}")
-    print(f"  3×3 = placement targets (GridSlot_* decals), 4 red / 4 blue on sides at x≈{GRID_CENTER_X - dx:.3f} / {GRID_CENTER_X + dx:.3f}")
-    print(f"  cell spacing={CELL_SPACING}")
+    print(
+        f"  3×3 = placement targets (GridSlot_* decals), 4 red / 4 blue on sides at x≈{geo.GRID_CENTER_X - dx:.3f} / {geo.GRID_CENTER_X + dx:.3f}"
+    )
+    print(f"  cell spacing={geo.CELL_SPACING}")
 
 
 if __name__ == "__main__":

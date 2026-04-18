@@ -38,7 +38,11 @@ class PandaKinematics:
             geometry_object.geometry.computeLocalAABB()
 
             aabb = geometry_object.geometry.aabb_local
-            dimensions = np.asarray(aabb.max_ - aabb.min_, dtype=float)
+            mx = np.asarray(aabb.max_, dtype=float)
+            mn = np.asarray(aabb.min_, dtype=float)
+            if not np.all(np.isfinite(mx)) or not np.all(np.isfinite(mn)):
+                continue
+            dimensions = mx - mn
             if np.any(dimensions <= 0.0):
                 continue
 

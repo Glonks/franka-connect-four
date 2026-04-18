@@ -25,10 +25,7 @@ MODEL_XML = (
 
 EndofTable = 0.55 + 0.135 + 0.05
 
-# Obstacles for RRT when using the Lab 3 MJCF (table only; no shelf boxes).
-BLOCKS_LAB3 = [
-    ["TablePlane", [EndofTable - 0.275, 0.0, -0.005], [0.275, 0.504, 0.0051]],
-]
+# Lab 3 RRT obstacles (table only) live in lab3/rrt_obstacles.py — used by grid_solver.make_lab3_rrt.
 
 BLOCKS=[
     ["TablePlane",[EndofTable-0.275,0.,-0.005],[0.275, 0.504, 0.0051]],
@@ -106,11 +103,16 @@ def main():
 
     robot_model = PandaKinematics(ROOT_MODEL_XML)
     ik_solver = IKSolver(robot_model)
-    planner_blocks = BLOCKS_LAB3 if USE_LAB3_SCENE else BLOCKS
-    planner = RRTPlanner(robot_model, planner_blocks, step_size=0.05)
 
-    # Demo trajectory is still the connect-four / shelf sequence; replace when you add Lab 3 actions.
-    actions = build_action_sequence(robot_model, ik_solver, planner)
+    if USE_LAB3_SCENE:
+        from grid_solver import build_lab3_actions, load_symbolic_plan, make_lab3_rrt
+
+        planner = make_lab3_rrt(robot_model)
+        print("Lab3 symbolic plan:", load_symbolic_plan())
+        actions = build_lab3_actions(robot_model, ik_solver, planner)
+    else:
+        planner = RRTPlanner(robot_model, BLOCKS, step_size=0.05)
+        actions = build_action_sequence(robot_model, ik_solver, planner)
 
     model = mj.MjModel.from_xml_path(MODEL_XML)
     data = mj.MjData(model)
@@ -118,8 +120,14 @@ def main():
     runtime.set_configuration(CommonPoses.Home)
 
     with viewer.launch_passive(model, data) as v:
-        v.cam.distance = 3.0
-        v.cam.azimuth += 90
+        if USE_LAB3_SCENE:
+            v.cam.lookat[:] = [0.55, 0.0, 0.12]
+            v.cam.distance = 1.65
+            v.cam.azimuth = 140.0
+            v.cam.elevation = -28.0
+        else:
+            v.cam.distance = 3.0
+            v.cam.azimuth += 90
 
         for action in actions:
             print(action)

@@ -8,10 +8,10 @@ class IKSolver:
         self,
         robot_model,
         frame_name="hand",
-        max_iterations=1000,
-        position_tolerance=1e-3,
-        rotation_tolerance=1e-3,
-        step_size=0.5,
+        max_iterations=3000,
+        position_tolerance=2e-3,
+        rotation_tolerance=3e-3,
+        step_size=0.4,
         W=None,
         C=None,
         alpha=0.1,
@@ -37,6 +37,11 @@ class IKSolver:
 
         q = self.robot_model.clip(q_init)
 
+        # While the hand is far in position, update using position-only task error. Mixing
+        # large position and orientation errors in one Jacobian step often stalls (Lab 3
+        # approach poses from Home → stack).
+        pos_priority_radius = max(0.012, 6.0 * self.position_tolerance)
+
         for _ in range(self.max_iterations):
             current_pose = self.robot_model.forward_kinematics(q, frame=self.frame_name)
             current_orientation = R.from_quat(current_pose.orientation, scalar_first=True)
@@ -51,13 +56,22 @@ class IKSolver:
             ):
                 return q.copy(), True, error
 
+            if np.linalg.norm(position_error) > pos_priority_radius:
+                task_error = np.concatenate(
+                    [position_error, np.zeros(3, dtype=float)]
+                )
+            else:
+                task_error = error
+
             J = self.robot_model.jacobian(q, frame=self.frame_name)
             J_prime = self.W_inv @ J.T @ np.linalg.inv(J @ self.W_inv @ J.T + self.C_inv)
-            dq = J_prime @ error
+            dq = J_prime @ task_error
 
             if bias is not None:
                 J_null = np.eye(7) - J_prime @ J
-                dq += self.alpha * (J_null @ (np.asarray(bias, dtype=np.float32) - q))
+                # Stronger pull toward bias helps table-height Cartesian goals converge.
+                alpha_ns = min(0.5, self.alpha * 4.0)
+                dq += alpha_ns * (J_null @ (np.asarray(bias, dtype=np.float64) - q))
 
             q = self.robot_model.clip(q + self.step_size * dq)
 
