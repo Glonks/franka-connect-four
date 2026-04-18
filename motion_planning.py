@@ -41,7 +41,11 @@ class RRTPlanner:
         return True
 
     def _is_edge_free(self, q1, q2, gripper_q=None):
-        for t in np.linspace(0.0, 1.0, self.free_edge_checks):
+        distance = np.linalg.norm(q2 - q1)
+        steps = max(2, int(distance / self.step_size))
+
+        for i in range(steps + 1):
+            t = i / steps
             q = q1 + t * (q2 - q1)
 
             if not self._is_collision_free(q, gripper_q=gripper_q):
