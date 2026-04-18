@@ -41,6 +41,9 @@ BLOCK_HALF_SIZE = 0.02
 
 MARGIN_GRID_TO_COLUMN = 0.045
 
+# Clearance from table edge (m) so block volumes stay on the slab.
+_EDGE_CLEAR = 0.015
+
 RED_RGBA = [0.9, 0.12, 0.1, 1.0]
 BLUE_RGBA = [0.1, 0.14, 0.9, 1.0]
 
@@ -105,8 +108,27 @@ def _add_grid_slot_markers(worldbody: ET.Element) -> None:
             )
 
 
+def _table_x_range() -> tuple[float, float]:
+    """Table top extent in world X (box geom uses half-sizes)."""
+    cx, hx = TABLE_PLANE_POS[0], TABLE_PLANE_SIZE[0]
+    return cx - hx, cx + hx
+
+
 def _lateral_offset_from_grid_center() -> float:
-    return 1.5 * CELL_SPACING + 2.0 * BLOCK_HALF_SIZE + MARGIN_GRID_TO_COLUMN
+    """
+    Distance from grid center to each storage column along ±X.
+
+    The nominal layout uses a gap past the 3×3; that can push the +X (blue)
+    column past the table edge. Clamp so both red and blue block centers keep
+    the cube footprint inside the table.
+    """
+    preferred = 1.5 * CELL_SPACING + 2.0 * BLOCK_HALF_SIZE + MARGIN_GRID_TO_COLUMN
+    x_min, x_max = _table_x_range()
+    dx_cap = min(
+        GRID_CENTER_X - x_min - BLOCK_HALF_SIZE - _EDGE_CLEAR,
+        x_max - GRID_CENTER_X - BLOCK_HALF_SIZE - _EDGE_CLEAR,
+    )
+    return max(0.04, min(preferred, dx_cap))
 
 
 def _build_figure1_block_specs() -> list[tuple[int, list[float], list[float]]]:
