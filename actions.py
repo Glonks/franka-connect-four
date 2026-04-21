@@ -49,7 +49,7 @@ class JointWaypointTrajectory:
         segment_speed=DEFAULT_SEGMENT_SPEED,
         min_segment_time=MIN_SEGMENT_TIME
     ):
-        self.waypoints = np.asarray(waypoints, dtype=np.float64)
+        self.waypoints = np.asarray(waypoints, dtype=float)
         if self.waypoints.ndim != 2 or self.waypoints.shape[0] < 2:
             raise ValueError("Trajectory requires at least two joint-space waypoints")
 
@@ -99,7 +99,7 @@ class GoTo:
         self.robot_model = robot_model
         self.ik_solver = ik_solver
         self.planner = planner
-        self.bias = None if bias is None else np.asarray(bias, dtype=np.float64)
+        self.bias = None if bias is None else np.asarray(bias, dtype=float)
         self.hold_time = hold_time
         self.segment_speed = segment_speed
         self.min_segment_time = min_segment_time
@@ -107,37 +107,18 @@ class GoTo:
 
     def _resolve_goal(self, q_start):
         if is_cartesian_pose(self.target):
-            # Multiple joint seeds: current q, blends toward bias, then full bias (Lab 3
-            # table poses often need a path in joint space from Home → PreInitialGrasp).
-            q_start = np.asarray(q_start, dtype=np.float64)
-            q_inits: list[np.ndarray] = [q_start]
-            if self.bias is not None:
-                qb = self.robot_model.clip(np.asarray(self.bias, dtype=np.float64))
-                for t in (0.33, 0.67):
-                    q_blend = self.robot_model.clip((1.0 - t) * q_start + t * qb)
-                    if not any(
-                        np.allclose(q_blend, qe, atol=1e-4, rtol=0.0) for qe in q_inits
-                    ):
-                        q_inits.append(q_blend)
-                if not any(np.allclose(qb, qe, atol=1e-4, rtol=0.0) for qe in q_inits):
-                    q_inits.append(qb)
-
-            last_error = None
-            for q_init in q_inits:
-                q_goal, success, error = self.ik_solver.solve(
-                    q_init,
-                    self.target,
-                    bias=self.bias,
-                )
-                last_error = error
-                if success:
-                    return q_goal
-
-            raise RuntimeError(
-                f"IK failed after {len(q_inits)} seed(s); last residual {last_error}"
+            q_goal, success, error = self.ik_solver.solve(
+                q_start,
+                self.target,
+                bias=self.bias
             )
 
-        return self.robot_model.clip(np.asarray(self.target, dtype=np.float64))
+            if not success:
+                raise RuntimeError(f"IK failed with residual {error}")
+
+            return q_goal
+
+        return self.robot_model.clip(np.asarray(self.target, dtype=float))
 
     def _build_waypoints(self, q_start, q_goal, gripper_q):
         path = self.planner.plan(q_start, q_goal, gripper_q=gripper_q)
@@ -168,7 +149,7 @@ class GoTo:
         return ControlCommand(q_des=q_des, qd_des=qd_des), done
 
     def __str__(self):
-        with np.printoptions(precision=4):
+        with np.printoptions(precision=4, suppress=True):
             if is_cartesian_pose(self.target):
                 position, orientation = map(np.asarray, self.target)
                 return f'<{self.__class__.__name__} position={position} orientation={orientation}>'
@@ -200,19 +181,46 @@ class GripperAction:
         return command, done
 
     def __str__(self):
-        with np.printoptions(precision=4):
+        with np.printoptions(precision=4, suppress=True):
             return f'<{self.__class__.__name__} target={self.gripper_target}>'
 
 
 def build_action_sequence(robot_model, ik_solver, planner):
-    """
-    Lab 2 manipulation pipeline. Implementation lives in task_planner.py.
-    """
-    from task_planner import Lab2TaskConfig, build_lab2_action_sequence
+    def _pose_for(q):
+        pose = robot_model.forward_kinematics(q)
+        return pose.position, pose.orientation
 
-    return build_lab2_action_sequence(
-        robot_model,
-        ik_solver,
-        planner,
-        Lab2TaskConfig(trial=1),
+    _GoTo = functools.partial(
+        GoTo,
+        robot_model=robot_model,
+        ik_solver=ik_solver,
+        planner=planner
     )
+
+    _OpenGripper = functools.partial(
+        GripperAction,
+        gripper_target=GripperState.Open
+    )
+
+    _CloseGripper = functools.partial(
+        GripperAction,
+        gripper_target=GripperState.Closed
+    )
+
+    return [
+        _GoTo(CommonPoses.Home),
+        _OpenGripper(),
+        _GoTo(_pose_for(CommonPoses.PreInitialGrasp)),
+        _CloseGripper(),
+        _GoTo(_pose_for(CommonPoses.ResetPoint)),
+        _GoTo(_pose_for(CommonPoses.LeftShelfAbove1)),
+        _OpenGripper(),
+        _GoTo(_pose_for(CommonPoses.ResetPoint)),
+        _GoTo(_pose_for(CommonPoses.LeftShelfPreGrasp1)),
+        _GoTo(_pose_for(CommonPoses.LeftShelfGrasp1)),
+        _CloseGripper(),
+        _GoTo(_pose_for(CommonPoses.ResetPoint)),
+        _GoTo(_pose_for(CommonPoses.RightShelf1)),
+        _OpenGripper(),
+        _GoTo(CommonPoses.Home),
+    ]
