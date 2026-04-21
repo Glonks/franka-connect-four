@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 """
-Build MJCF for Robot Autonomy Lab 3 (RobotAutonomy_Lab3.pdf).
+Build MJCF for Lab 3 table scene: 4×4 placement grid + sixteen blocks (8 red / 8 blue).
 
-Figure 1: central 3×3 grid of *target locations* (gray squares in the figure are
-slots to place blocks, not extra cubes), four red blocks on one side, four blue
-on the other.
-
-Scene: panda_torque_table.xml + TablePlane (Lab 2 run.py) + nine thin floor
-markers (visual only, no collision) showing the 3×3 + eight free red/blue blocks.
-
-Grid cell centers match lab3.geometry.cell_center — use these for task planning.
+Visual grid markers are thin floor decals (no collision). Block bodies match
+``lab3.geometry`` for planning.
 
 Writes: franka_emika_panda/panda_torque_table_lab3.xml
 
@@ -70,8 +64,9 @@ def _add_grid_slot_markers(worldbody: ET.Element) -> None:
     z = 0.002
     half = geo.CELL_SPACING * 0.48
     hz = 0.0008
-    for row in range(3):
-        for col in range(3):
+    n = geo.GRID_SIZE
+    for row in range(n):
+        for col in range(n):
             cx, cy = geo.cell_center(row, col)
             body = ET.SubElement(
                 worldbody,
@@ -91,16 +86,15 @@ def _add_grid_slot_markers(worldbody: ET.Element) -> None:
             )
 
 
-def _build_figure1_block_specs() -> list[tuple[int, list[float], list[float]]]:
-    dx = geo.lateral_offset_from_grid_center()
-    x_red = geo.GRID_CENTER_X - dx
-    x_blue = geo.GRID_CENTER_X + dx
-    row_y = geo.stack_row_y()
+def _build_block_specs() -> list[tuple[int, list[float], list[float]]]:
     specs: list[tuple[int, list[float], list[float]]] = []
-    for i in range(4):
-        z = geo.Z_BLOCK_CENTER
-        specs.append((i, [x_red, row_y[i], z], RED_RGBA))
-        specs.append((4 + i, [x_blue, row_y[i], z], BLUE_RGBA))
+    z = geo.Z_BLOCK_CENTER
+    for i in range(8):
+        x, y, _ = geo.stack_world_pose("red", i)
+        specs.append((i, [x, y, z], RED_RGBA))
+    for i in range(8):
+        x, y, _ = geo.stack_world_pose("blue", i)
+        specs.append((8 + i, [x, y, z], BLUE_RGBA))
     return specs
 
 
@@ -122,7 +116,7 @@ def build_lab3_mjcf() -> ET.ElementTree:
 
     _add_grid_slot_markers(worldbody)
 
-    for bid, pos, rgba in _build_figure1_block_specs():
+    for bid, pos, rgba in _build_block_specs():
         _add_free_block(
             worldbody,
             f"Block{bid}",
@@ -139,12 +133,15 @@ def build_lab3_mjcf() -> ET.ElementTree:
 def main() -> None:
     tree = build_lab3_mjcf()
     tree.write(OUTPUT_XML, encoding="utf-8", xml_declaration=True)
-    dx = geo.lateral_offset_from_grid_center()
     print(f"Wrote {OUTPUT_XML}")
+    yb = geo.stack_y_edge("red")
+    yt = geo.stack_y_edge("blue")
     print(
-        f"  3×3 = placement targets (GridSlot_* decals), 4 red / 4 blue on sides at x≈{geo.GRID_CENTER_X - dx:.3f} / {geo.GRID_CENTER_X + dx:.3f}"
+        f"  {geo.GRID_SIZE}×{geo.GRID_SIZE} grid (GridSlot_*), "
+        f"8 red along bottom edge (y≈{yb:.3f}), 8 blue along top edge (y≈{yt:.3f}), "
+        f"slots stepped along X"
     )
-    print(f"  cell spacing={geo.CELL_SPACING}")
+    print(f"  cell spacing={geo.CELL_SPACING}, stack_x spacing={geo.STACK_X_SPACING}")
 
 
 if __name__ == "__main__":
