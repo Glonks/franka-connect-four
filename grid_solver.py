@@ -36,7 +36,7 @@ from mujoco import viewer
 from actions import CommonPoses, GoTo, GripperAction, GripperState
 from inverse_kinematics import IKSolver
 from kinematics import PandaKinematics
-from motion_planning import RRTPlanner
+from motion_planner import RRTPlanner
 from runtime import MujocoRuntime
 
 from lab3 import geometry as geo

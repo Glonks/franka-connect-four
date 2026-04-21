@@ -89,7 +89,11 @@ class FrankaPyRuntime:
         return self.CONTROL_DT
 
     def set_configuration(self, q):
-        self.robot.goto_joints(np.asarray(q, dtype=float).tolist(), duration=self.INIT_DURATION, block=True)
+        self.robot.goto_joints(
+            np.asarray(q, dtype=float).tolist(),
+            duration=self.INIT_DURATION,
+            block=True
+        )
 
     def get_state(self):
         state = self.robot.get_robot_state()
