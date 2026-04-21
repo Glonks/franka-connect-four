@@ -1,15 +1,16 @@
 import numpy as np
+import time
+import mujoco as mj
 import xml.etree.ElementTree as ET
 import RobotUtil as rt
 
 from actions import build_action_sequence, CommonPoses
 from kinematics import PandaKinematics
 from inverse_kinematics import IKSolver
-from motion_planning import RRTPlanner
-from runtime import MujocoRuntime
-import time
-import mujoco as mj
+from motion_planner import RRTPlanner
+from runtime import MujocoRuntime, FrankaPyRuntime
 from mujoco import viewer
+from argparse import ArgumentParser
 
 
 ROOT_MODEL_XML = "franka_emika_panda/panda_torque_table.xml"
@@ -97,7 +98,7 @@ def build_env():
     modelTree.write(MODEL_XML, encoding="utf-8", xml_declaration=True)
 
 
-def main():
+def main(runtime):
     if not USE_LAB3_SCENE:
         build_env()
 
@@ -116,7 +117,11 @@ def main():
 
     model = mj.MjModel.from_xml_path(MODEL_XML)
     data = mj.MjData(model)
-    runtime = MujocoRuntime(model, data, ARM_INDEX)
+
+    runtime = (
+        MujocoRuntime if args.runtime == 'sim' else FrankaPyRuntime
+    )(model, data, ARM_INDEX)
+
     runtime.set_configuration(CommonPoses.Home)
 
     with viewer.launch_passive(model, data) as v:
@@ -150,4 +155,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = ArgumentParser()
+    parser.add_argument('--runtime', '-r', type=str, choices=['sim', 'real'], required=True)
+    args = parser.parse_args()
+
+    main(args.runtime)
