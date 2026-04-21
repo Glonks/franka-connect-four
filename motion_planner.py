@@ -2,6 +2,57 @@ import numpy as np
 import RobotUtil as rt
 
 
+def _check_point_overlap(robot_points, obstacle_points, axis):
+    projected_robot_points = np.matmul(axis, np.transpose(robot_points))
+    projected_obstacle_points = np.matmul(axis, np.transpose(obstacle_points))
+
+    max_a = np.max(projected_robot_points)
+    min_a = np.min(projected_robot_points)
+    max_b = np.max(projected_obstacle_points)
+    min_b = np.min(projected_obstacle_points)
+
+    if max_a <= max_b and max_a >= min_b:
+        return True
+    if min_a <= max_b and min_a >= min_b:
+        return True
+    if max_b <= max_a and max_b >= min_a:
+        return True
+    if min_b <= max_a and min_b >= min_a:
+        return True
+
+    return False
+
+
+def _check_box_box_collision(robot_descriptor, obstacle_descriptor):
+    robot_points, robot_axes = robot_descriptor
+    obstacle_points, obstacle_axes = obstacle_descriptor
+
+    if np.linalg.norm(robot_points[0] - obstacle_points[0]) > (
+        np.linalg.norm(robot_points[0] - robot_points[1])
+        + np.linalg.norm(obstacle_points[0] - obstacle_points[1])
+    ):
+        return False
+
+    for i in range(3):
+        if not _check_point_overlap(robot_points, obstacle_points, robot_axes[i]):
+            return False
+
+    for j in range(3):
+        if not _check_point_overlap(robot_points, obstacle_points, obstacle_axes[j]):
+            return False
+
+    for i in range(3):
+        for j in range(3):
+            if not _check_point_overlap(
+                robot_points,
+                obstacle_points,
+                np.cross(robot_axes[i], obstacle_axes[j]),
+            ):
+                return False
+
+    return True
+
+
 class RRTPlanner:
     def __init__(
         self,
@@ -33,9 +84,9 @@ class RRTPlanner:
             self.obstacle_boxes.append(rt.BlockDesc2Points(H, 2.0 * half_extents))
 
     def _is_collision_free(self, q, gripper_q=None):
-        for robot_points, robot_axes in self.robot_model.collision_box_descriptors(q, gripper_q=gripper_q):
-            for obstacle_points, obstacle_axes in self.obstacle_boxes:
-                if rt.CheckBoxBoxCollision(robot_points, robot_axes, obstacle_points, obstacle_axes):
+        for robot_descriptor in self.robot_model.collision_box_descriptors(q, gripper_q=gripper_q):
+            for obstacle_descriptor in self.obstacle_boxes:
+                if _check_box_box_collision(robot_descriptor, obstacle_descriptor):
                     return False
 
         return True
