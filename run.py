@@ -17,7 +17,7 @@ ROOT_MODEL_XML = "franka_emika_panda/panda_torque_table.xml"
 
 # True: load pre-built Lab 3 scene (run `python lab3/build_lab3_xml.py` first).
 # False: generate connect-four + shelves into MODEL_XML via build_env().
-USE_LAB3_SCENE = True
+USE_LAB3_SCENE = False
 MODEL_XML = (
     "franka_emika_panda/panda_torque_table_lab3.xml"
     if USE_LAB3_SCENE

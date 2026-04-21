@@ -1,37 +1,42 @@
 import numpy as np
 import RobotUtil as rt
 
+from dataclasses import dataclass
+
 
 def _check_point_overlap(robot_points, obstacle_points, axis):
-    projected_robot_points = np.matmul(axis, np.transpose(robot_points))
-    projected_obstacle_points = np.matmul(axis, np.transpose(obstacle_points))
+    projected_robot_points = robot_points @ axis
+    projected_obstacle_points = obstacle_points @ axis
 
-    max_a = np.max(projected_robot_points)
-    min_a = np.min(projected_robot_points)
-    max_b = np.max(projected_obstacle_points)
-    min_b = np.min(projected_obstacle_points)
+    max_projected_robot_point = np.max(projected_robot_points)
+    min_projected_robot_point = np.min(projected_robot_points)
+    max_projected_obstacle_point = np.max(projected_obstacle_points)
+    min_projected_obstacle_point = np.min(projected_obstacle_points)
 
-    if max_a <= max_b and max_a >= min_b:
-        return True
-    if min_a <= max_b and min_a >= min_b:
-        return True
-    if max_b <= max_a and max_b >= min_a:
-        return True
-    if min_b <= max_a and min_b >= min_a:
-        return True
-
-    return False
+    return (
+        (max_projected_robot_point >= min_projected_obstacle_point) and
+        (max_projected_obstacle_point >= min_projected_robot_point)
+    )
 
 
 def _check_box_box_collision(robot_descriptor, obstacle_descriptor):
+    # rp, ra = map(np.asarray, robot_descriptor)   # rp: (9,3), ra: (3,3)
+    # op, oa = map(np.asarray, obstacle_descriptor)
+    # cross_axes = np.cross(ra[:, None, :], oa[None, :, :]).reshape(-1, 3)
+    # axes = np.vstack([ra, oa, cross_axes])                     # (15,3)
+    # norms = np.linalg.norm(axes, axis=1)
+    # axes = axes[norms > np.finfo(float).eps]                                   # drop degenerate axes
+    # axes = axes / np.linalg.norm(axes, axis=1, keepdims=True)  # normalize optional
+    # # project all points onto all axes at once
+    # r_proj = rp @ axes.T                                       # (9,k)
+    # o_proj = op @ axes.T                                       # (9,k)
+    # r_min, r_max = r_proj.min(axis=0), r_proj.max(axis=0)
+    # o_min, o_max = o_proj.min(axis=0), o_proj.max(axis=0)
+    # # overlap on every axis
+    # return np.all((r_max >= o_min) & (o_max >= r_min))
+
     robot_points, robot_axes = robot_descriptor
     obstacle_points, obstacle_axes = obstacle_descriptor
-
-    if np.linalg.norm(robot_points[0] - obstacle_points[0]) > (
-        np.linalg.norm(robot_points[0] - robot_points[1])
-        + np.linalg.norm(obstacle_points[0] - obstacle_points[1])
-    ):
-        return False
 
     for i in range(3):
         if not _check_point_overlap(robot_points, obstacle_points, robot_axes[i]):
@@ -43,14 +48,28 @@ def _check_box_box_collision(robot_descriptor, obstacle_descriptor):
 
     for i in range(3):
         for j in range(3):
-            if not _check_point_overlap(
-                robot_points,
-                obstacle_points,
-                np.cross(robot_axes[i], obstacle_axes[j]),
-            ):
+            axis = np.cross(robot_axes[i], obstacle_axes[j])
+
+            if np.linalg.norm(axis) < 1e-10:
+                continue
+
+            if not _check_point_overlap(robot_points, obstacle_points, axis):
                 return False
 
     return True
+
+
+@dataclass
+class Tree:
+    buffer: np.ndarray
+    size: int = 0
+
+    def append(self, x):
+        self.buffer[self.size] = x
+        self.size += 1
+
+    def view(self):
+        return self.buffer[:self.size]
 
 
 class RRTPlanner:
@@ -62,7 +81,7 @@ class RRTPlanner:
         max_iterations=5000,
         goal_bias=0.2,
         goal_threshold=0.3,
-        shortcut_attempts=200,
+        shortcut_attempts=100,
         free_edge_checks=10
     ):
         self.robot_model = robot_model
@@ -111,7 +130,8 @@ class RRTPlanner:
         return np.random.uniform(self.joint_limits[:, 0], self.joint_limits[:, 1])
 
     def _nearest(self, tree, q):
-        distances = np.linalg.norm(tree - q, axis=1)
+        difference = tree.view() - q
+        distances = np.sum(difference * difference, axis=1)
 
         return int(np.argmin(distances))
 
@@ -126,19 +146,20 @@ class RRTPlanner:
 
     def _extract_path(self, tree, parents):
         path = []
-        index = len(tree) - 1
+        index = tree.size - 1
 
         while index != -1:
-            path.append(tree[index])
+            path.append(tree.buffer[index])
             index = parents[index]
 
         path.reverse()
 
         return path
 
-    def _shortcut(self, path, attempts=200, gripper_q=None):
+    def _shortcut(self, path, gripper_q=None):
         path = list(path)
-        for _ in range(attempts):
+
+        for _ in range(self.shortcut_attempts):
             if len(path) <= 2:
                 break
 
@@ -165,13 +186,17 @@ class RRTPlanner:
         if self._is_edge_free(q_start, q_goal, gripper_q=gripper_q):
             return [q_start.copy(), q_goal.copy()]
 
-        tree = [q_start.copy()]
+        tree = Tree(np.empty((self.max_iterations + 2, q_start.shape[0]), dtype=float))
+        tree.append(q_start)
+
         parents = [-1]
 
         for _ in range(self.max_iterations):
             q_sample = self._sample(q_goal)
-            closest_index = self._nearest(np.array(tree), q_sample)
-            q_closest = tree[closest_index]
+
+            closest_index = self._nearest(tree.view(), q_sample)
+            q_closest = tree.buffer[closest_index]
+
             q_new = self.robot_model.clip(self._steer(q_closest, q_sample))
 
             if not self._is_edge_free(q_closest, q_new, gripper_q=gripper_q):
@@ -184,8 +209,8 @@ class RRTPlanner:
                 np.linalg.norm(q_new - q_goal) < self.goal_threshold and
                 self._is_edge_free(q_new, q_goal, gripper_q=gripper_q)
             ):
-                tree.append(q_goal.copy())
-                parents.append(len(tree) - 2)
+                tree.append(q_goal)
+                parents.append(tree.size - 2)
 
                 path = self._extract_path(tree, parents)
                 path = self._shortcut(path, gripper_q=gripper_q)
