@@ -7,7 +7,7 @@ import RobotUtil as rt
 from actions import build_action_sequence, CommonPoses
 from kinematics import PandaKinematics
 from inverse_kinematics import IKSolver
-from motion_planning import RRTPlanner
+from motion_planner import RRTPlanner
 from runtime import MujocoRuntime, FrankaPyRuntime
 from mujoco import viewer
 from argparse import ArgumentParser
