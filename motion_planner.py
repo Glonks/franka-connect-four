@@ -1,10 +1,11 @@
 import numpy as np
 import RobotUtil as rt
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum, auto
 
 
-def _check_point_overlap(robot_points, obstacle_points, axis):
+def _check_point_overlap(robot_points, obstacle_points, axis) -> bool:
     projected_robot_points = robot_points @ axis
     projected_obstacle_points = obstacle_points @ axis
 
@@ -19,22 +20,7 @@ def _check_point_overlap(robot_points, obstacle_points, axis):
     )
 
 
-def _check_box_box_collision(robot_descriptor, obstacle_descriptor):
-    # rp, ra = map(np.asarray, robot_descriptor)   # rp: (9,3), ra: (3,3)
-    # op, oa = map(np.asarray, obstacle_descriptor)
-    # cross_axes = np.cross(ra[:, None, :], oa[None, :, :]).reshape(-1, 3)
-    # axes = np.vstack([ra, oa, cross_axes])                     # (15,3)
-    # norms = np.linalg.norm(axes, axis=1)
-    # axes = axes[norms > np.finfo(float).eps]                                   # drop degenerate axes
-    # axes = axes / np.linalg.norm(axes, axis=1, keepdims=True)  # normalize optional
-    # # project all points onto all axes at once
-    # r_proj = rp @ axes.T                                       # (9,k)
-    # o_proj = op @ axes.T                                       # (9,k)
-    # r_min, r_max = r_proj.min(axis=0), r_proj.max(axis=0)
-    # o_min, o_max = o_proj.min(axis=0), o_proj.max(axis=0)
-    # # overlap on every axis
-    # return np.all((r_max >= o_min) & (o_max >= r_min))
-
+def _check_box_box_collision(robot_descriptor, obstacle_descriptor) -> bool:
     robot_points, robot_axes = robot_descriptor
     obstacle_points, obstacle_axes = obstacle_descriptor
 
@@ -62,35 +48,53 @@ def _check_box_box_collision(robot_descriptor, obstacle_descriptor):
 @dataclass
 class Tree:
     buffer: np.ndarray
+    parents: list = field(default_factory=list)
     size: int = 0
 
-    def append(self, x):
-        self.buffer[self.size] = x
+    def append(self, q: np.ndarray, parent_index: int):
+        self.buffer[self.size] = q
+        self.parents.append(parent_index)
+
         self.size += 1
 
-    def view(self):
+    def view(self) -> np.ndarray:
         return self.buffer[:self.size]
+
+    def extract_path(self) -> list:
+        path = []
+        index = self.size - 1
+
+        while index != -1:
+            path.append(self.buffer[index].copy())
+            index = self.parents[index]
+
+        path.reverse()
+
+        return path
+
+
+class ConnectStatus(Enum):
+    REACHED = auto()
+    ADVANCED = auto()
+    TRAPPED = auto()
 
 
 class RRTPlanner:
+    """RRT-Connect"""
     def __init__(
         self,
         robot_model,
         obstacles,
         step_size=0.15,
         max_iterations=5000,
-        goal_bias=0.2,
         goal_threshold=0.3,
-        shortcut_attempts=100,
-        free_edge_checks=10
+        shortcut_attempts=100
     ):
         self.robot_model = robot_model
         self.step_size = step_size
         self.max_iterations = max_iterations
-        self.goal_bias = goal_bias
         self.goal_threshold = goal_threshold
         self.shortcut_attempts = shortcut_attempts
-        self.free_edge_checks = free_edge_checks
         self.joint_limits = self.robot_model.joint_limits.copy()
 
         self.obstacle_centers = np.array([o[1] for o in obstacles], dtype=float)
@@ -102,7 +106,7 @@ class RRTPlanner:
 
             self.obstacle_boxes.append(rt.BlockDesc2Points(H, 2.0 * half_extents))
 
-    def _is_collision_free(self, q, gripper_q=None):
+    def _is_collision_free(self, q, gripper_q=None) -> bool:
         for robot_descriptor in self.robot_model.collision_box_descriptors(q, gripper_q=gripper_q):
             for obstacle_descriptor in self.obstacle_boxes:
                 if _check_box_box_collision(robot_descriptor, obstacle_descriptor):
@@ -110,7 +114,7 @@ class RRTPlanner:
 
         return True
 
-    def _is_edge_free(self, q1, q2, gripper_q=None):
+    def _is_edge_free(self, q1, q2, gripper_q=None) -> bool:
         distance = np.linalg.norm(q2 - q1)
         steps = max(2, int(distance / self.step_size))
 
@@ -123,42 +127,57 @@ class RRTPlanner:
 
         return True
 
-    def _sample(self, q_goal):
-        if np.random.random() < self.goal_bias:
-            return q_goal.copy()
-
+    def _sample(self) -> np.ndarray:
         return np.random.uniform(self.joint_limits[:, 0], self.joint_limits[:, 1])
 
-    def _nearest(self, tree, q):
+    def _nearest(self, tree, q) -> int:
         difference = tree.view() - q
         distances = np.sum(difference * difference, axis=1)
 
         return int(np.argmin(distances))
 
-    def _steer(self, q_near, q_sample):
-        difference = q_sample - q_near
+    def _steer(self, q_near, q_target) -> np.ndarray:
+        difference = q_target - q_near
         distance = np.linalg.norm(difference)
 
         if distance <= self.step_size:
-            return q_sample.copy()
+            return q_target.copy()
 
         return q_near + (difference / distance) * self.step_size
 
-    def _extract_path(self, tree, parents):
-        path = []
-        index = tree.size - 1
+    def _extend(self, tree, q_target, gripper_q=None) -> ConnectStatus:
+        nearest_index = self._nearest(tree, q_target)
+        q_nearest = tree.buffer[nearest_index]
 
-        while index != -1:
-            path.append(tree.buffer[index])
-            index = parents[index]
+        q_new = self.robot_model.clip(self._steer(q_nearest, q_target))
 
-        path.reverse()
+        if not self._is_edge_free(q_nearest, q_new, gripper_q=gripper_q):
+            return ConnectStatus.TRAPPED
+ 
+        tree.append(q_new, nearest_index)
+ 
+        if np.linalg.norm(q_new - q_target) < self.goal_threshold:
+            return ConnectStatus.REACHED
 
-        return path
+        return ConnectStatus.ADVANCED
 
-    def _shortcut(self, path, gripper_q=None):
-        path = list(path)
+    def _connect(self, tree, q_target, gripper_q=None) -> ConnectStatus:
+        status = ConnectStatus.ADVANCED
 
+        while status == ConnectStatus.ADVANCED:
+            status = self._extend(tree, q_target, gripper_q=gripper_q)
+
+        return status
+
+    def _stitch(self, tree_1, tree_2) -> list:
+        path_1 = tree_1.extract_path()
+        path_2 = tree_2.extract_path()
+
+        path_2.reverse()
+
+        return path_1 + path_2[1:]
+
+    def _shortcut(self, path, gripper_q=None) -> list:
         for _ in range(self.shortcut_attempts):
             if len(path) <= 2:
                 break
@@ -186,35 +205,30 @@ class RRTPlanner:
         if self._is_edge_free(q_start, q_goal, gripper_q=gripper_q):
             return [q_start.copy(), q_goal.copy()]
 
-        tree = Tree(np.empty((self.max_iterations + 2, q_start.shape[0]), dtype=float))
-        tree.append(q_start)
+        worst_case_size = self.max_iterations + 2
 
-        parents = [-1]
+        tree_start = Tree(np.empty((worst_case_size, q_start.shape[0]), dtype=float))
+        tree_goal = Tree(np.empty((worst_case_size, q_start.shape[0]), dtype=float))
+
+        tree_start.append(q_start, -1)
+        tree_goal.append(q_goal, -1)
+
+        tree_1, tree_2 = tree_start, tree_goal
 
         for _ in range(self.max_iterations):
-            q_sample = self._sample(q_goal)
+            q_sample = self._sample()
 
-            closest_index = self._nearest(tree.view(), q_sample)
-            q_closest = tree.buffer[closest_index]
-
-            q_new = self.robot_model.clip(self._steer(q_closest, q_sample))
-
-            if not self._is_edge_free(q_closest, q_new, gripper_q=gripper_q):
+            if self._extend(tree_1, q_sample, gripper_q=gripper_q) == ConnectStatus.TRAPPED:
+                tree_1, tree_2 = tree_2, tree_1
                 continue
 
-            tree.append(q_new)
-            parents.append(closest_index)
-
-            if (
-                np.linalg.norm(q_new - q_goal) < self.goal_threshold and
-                self._is_edge_free(q_new, q_goal, gripper_q=gripper_q)
-            ):
-                tree.append(q_goal)
-                parents.append(tree.size - 2)
-
-                path = self._extract_path(tree, parents)
+            q_new = tree_1.buffer[tree_1.size - 1]
+            if self._connect(tree_2, q_new, gripper_q=gripper_q) == ConnectStatus.REACHED:
+                path = self._stitch(tree_start, tree_goal)
                 path = self._shortcut(path, gripper_q=gripper_q)
 
                 return path
+
+            tree_1, tree_2 = tree_2, tree_1
 
         return None
