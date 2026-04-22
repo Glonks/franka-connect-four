@@ -114,9 +114,6 @@ class FrankaPyRuntime:
                 self.last_gripper_target is None
                 or abs(target - self.last_gripper_target) > 1e-4
             ):
-                if target >= 0.03:
-                    self.robot.open_gripper(block=True)
-                else:
-                    self.robot.goto_gripper(target, block=True)
+                self.robot.open_gripper(block=True)
 
                 self.last_gripper_target = target
