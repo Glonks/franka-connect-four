@@ -32,13 +32,13 @@ class IKSolver:
     def solve(self, q_init, target_pose, bias=None):
         target_position, target_orientation = target_pose
         target_position = np.asarray(target_position, dtype=float)
-        target_orientation = R.from_quat(np.asarray(target_orientation, dtype=float), scalar_first=True)
+        target_orientation = R.from_quat(np.roll(np.asarray(target_orientation, dtype=float), -1))
 
         q = self.robot_model.clip(q_init)
 
         for _ in range(self.max_iterations):
             current_pose = self.robot_model.forward_kinematics(q, frame=self.frame_name)
-            current_orientation = R.from_quat(current_pose.orientation, scalar_first=True)
+            current_orientation = R.from_quat(np.roll(current_pose.orientation, -1))
 
             position_error = target_position - current_pose.position
             orientation_error = (target_orientation * current_orientation.inv()).as_rotvec()

@@ -82,7 +82,7 @@ class PandaKinematics:
 
         placement = self.data.oMf[frame_id]
 
-        orientation = R.from_matrix(placement.rotation).as_quat(scalar_first=True)
+        orientation = np.roll(R.from_matrix(placement.rotation).as_quat(), 1)
 
         return Pose(position=placement.translation.copy(), orientation=orientation)
 
