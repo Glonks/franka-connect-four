@@ -111,18 +111,20 @@ class ConnectThree():
             self.board_state = current_state
 
         # Select move with highest win rate
-        valid_moves = [self.play_move('1', col) for col in range(self.width) if self.is_valid_move(col)]
+        valid_moves = [(self.play_move('1', col), col) for col in range(self.width) if self.is_valid_move(col)]
         max_score = 0
         max_state = 0
-        for state in valid_moves:
+        max_col = 0
+        for state, col in valid_moves:
             visits, wins = self.nodes[state]
             score = (wins / visits)
             
             if score >= max_score:
                 max_score = score
                 max_state = state
+                max_col = col
         
-        return max_state
+        return max_state, max_col
 
         
 
@@ -152,7 +154,7 @@ class ConnectThree():
             return -1
         
         # Play CPU turn
-        self.board_state = self.mcdt()
+        self.board_state, _ = self.mcdt()
         
         # Check for game end
         result = self.check_victory()
@@ -169,6 +171,54 @@ class ConnectThree():
         
         print('')
         return 0
+    
+    def robot_turn(self):
+        # Print the board
+        state_str = ""
+        for i in range(self.height):
+            for j in range(self.width):
+                state_str += self.board_state[self.board_ix(self.height - i - 1, j)]
+            state_str += '\n'
+        print(state_str)
+
+        # Take user input
+        self.board_state = self.user_turn()
+
+        # Check for game end
+        result = self.check_victory()
+        if result == '2':
+            board_state = self.board_state
+            self.reset_game()
+            print("You win!")
+            np.save('connectthree.npy', self.nodes)
+            return 2, None, board_state
+        elif result == '-1':
+            board_state = self.board_state
+            self.reset_game()
+            print("It's a draw!")
+            np.save('connectthree.npy', self.nodes)
+            return -1, None, board_state
+        
+        # Play CPU turn
+        self.board_state, play = self.mcdt()
+        
+        # Check for game end
+        result = self.check_victory()
+        if result == '1':
+            board_state = self.board_state
+            self.reset_game()
+            print("You lose!")
+            np.save('connectthree.npy', self.nodes)
+            return 1, play, board_state
+        if result == '-1':
+            board_state = self.board_state
+            self.reset_game()
+            print("It's a draw!")
+            np.save('connectthree.npy', self.nodes)
+            return -1, play, board_state
+        
+        print('')
+        return 0, play, self.board_state
 
     def board_ix(self, i, j):
         return self.height * j + i

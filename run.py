@@ -4,7 +4,8 @@ import mujoco as mj
 import xml.etree.ElementTree as ET
 import RobotUtil as rt
 
-from actions import build_action_sequence, CommonPoses
+from actions import build_action_sequence, CommonPoses, ConnectThreeActions
+from connectthree import ConnectThree
 from kinematics import PandaKinematics
 from inverse_kinematics import IKSolver
 from motion_planner import RRTPlanner
@@ -17,7 +18,7 @@ ROOT_MODEL_XML = "franka_emika_panda/panda_torque_table.xml"
 
 # True: load pre-built Lab 3 scene (run `python lab3/build_lab3_xml.py` first).
 # False: generate connect-four + shelves into MODEL_XML via build_env().
-USE_LAB3_SCENE = False
+USE_LAB3_SCENE = True
 MODEL_XML = (
     "franka_emika_panda/panda_torque_table_lab3.xml"
     if USE_LAB3_SCENE
@@ -110,7 +111,7 @@ def main(runtime):
 
         planner = make_lab3_rrt(robot_model)
         print("Lab3 symbolic plan:", load_symbolic_plan())
-        actions = build_lab3_actions(robot_model, ik_solver, planner)
+        #actions = build_lab3_actions(robot_model, ik_solver, planner)
     else:
         planner = RRTPlanner(robot_model, BLOCKS, step_size=0.05)
         actions = build_action_sequence(robot_model, ik_solver, planner)
@@ -133,23 +134,57 @@ def main(runtime):
         else:
             v.cam.distance = 3.0
             v.cam.azimuth += 90
+        
+        if not USE_LAB3_SCENE:
+            for action in actions:
+                print(action)
 
-        for action in actions:
-            print(action)
+                t, done = 0.0, False
 
-            t, done = 0.0, False
+                while not done:
+                    if not v.is_running():
+                        break
 
-            while not done:
-                if not v.is_running():
+                    command, done = action.control(runtime.get_state(), t)
+                    runtime.step(command)
+                    v.sync()
+
+                    t += runtime.dt
+
+                time.sleep(0.1)
+        else:
+            game = ConnectThree()
+            game.reset_game()
+            action_gen = ConnectThreeActions(robot_model, ik_solver, make_lab3_rrt(robot_model))
+
+            while True:
+                res, col, board_state = game.robot_turn()
+                
+                actions = []
+                if res == -1 or res == 2:
                     break
 
-                command, done = action.control(runtime.get_state(), t)
-                runtime.step(command)
-                v.sync()
+                actions = action_gen.actions_for_turn(col, board_state)
+                
+                for action in actions:
+                    print(action)
 
-                t += runtime.dt
+                    t, done = 0.0, False
 
-            time.sleep(0.1)
+                    while not done:
+                        if not v.is_running():
+                            break
+
+                        command, done = action.control(runtime.get_state(), t)
+                        runtime.step(command)
+                        v.sync()
+
+                        t += runtime.dt
+
+                    time.sleep(0.1)
+                
+                if res != 0:
+                    break
     
     time.sleep(0.1)
 

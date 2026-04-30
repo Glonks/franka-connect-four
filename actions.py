@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from runtime import ControlCommand
 from utils import is_cartesian_pose, interpolate_min_jerk
+from scipy.spatial.transform import Rotation as R
 
 
 DEFAULT_SEGMENT_SPEED = 0.75
@@ -182,6 +183,80 @@ class GripperAction:
         with np.printoptions(precision=4, suppress=True):
             return f'<{self.__class__.__name__} target={self.gripper_target}>'
 
+class ConnectThreeActions:
+    def __init__(self, robot_model, ik_solver, planner):
+        self.top_cube = 0
+        
+        
+        self.GRID_CENTER = np.array((0.475, 0, 0.125))
+        self.GRID_SPACE = 0.07
+        self.TOP_LEFT_SPACE = self.GRID_CENTER + np.array((-1.5 * self.GRID_SPACE, -1.5 * self.GRID_SPACE, 0))
+        self.CUBE_SPACE = 0.055
+        self.SUPPLY_START = np.array((0.475 + (3.5 * self.CUBE_SPACE), -0.21, 0.125))
+
+        self._GoTo = functools.partial(
+            GoTo,
+            robot_model= robot_model,
+            ik_solver=ik_solver,
+            planner=planner
+        )
+
+        self._OpenGripper = functools.partial(
+            GripperAction,
+            gripper_target=0.025
+        )
+
+        self._CloseGripper = functools.partial(
+            GripperAction,
+            gripper_target=GripperState.Closed
+        )
+
+    # Grip direction
+    def grip_quaternion(self, grip: str) -> np.ndarray:
+        if grip == "v":
+            rot = R.from_euler("xyz", [np.pi, 0.0, 0.0])
+        else:
+            rot = R.from_euler("xyz", [np.pi, 0.0, np.pi / 2])
+        x, y, z, w = rot.as_quat()
+        return np.array([w, x, y, z], dtype=np.float64)
+
+    def actions_for_turn(self, col, board_state):
+        # col is the column to play, board_state is the current board state *including* this move
+
+        actions = []
+        actions.append(self._OpenGripper())
+        # First, navigate to a cube
+        current_cube = self.SUPPLY_START - (self.top_cube * np.array((self.CUBE_SPACE, 0, 0)))
+        actions.append(self._GoTo((current_cube + np.array((0, 0, 0.1)), self.grip_quaternion('v'))))
+        actions.append(self._GoTo((current_cube, self.grip_quaternion('v'))))
+        actions.append(self._CloseGripper())
+        self.top_cube += 1
+
+        # Take it to above board center
+        actions.append(self._GoTo((self.GRID_CENTER + np.array((0, 0, 0.3)), self.grip_quaternion('v'))))
+
+        # Go to the appropriate grid spot
+        # Find it from the given column and board state
+        col_ix = 4 * col
+        column = board_state[col_ix : col_ix + 4]
+        play_height = column.find('0')
+        # Adjust since the play was just made
+        if play_height == -1:
+            play_height = 3
+        else:
+            play_height -= 1
+        
+        # Now go there
+        current_space = self.TOP_LEFT_SPACE + np.array((self.GRID_SPACE * (3 - play_height), self.GRID_SPACE * col, 0))
+        actions.append(self._GoTo((current_space + np.array((0, 0, 0.3)), self.grip_quaternion('v'))))
+        actions.append(self._GoTo((current_space, self.grip_quaternion('v'))))
+        actions.append(self._OpenGripper())
+        actions.append(self._GoTo((current_space + np.array((0, 0, 0.3)), self.grip_quaternion('v'))))
+
+        # Return to board center
+        actions.append(self._GoTo((self.GRID_CENTER + np.array((0, 0, 0.3)), self.grip_quaternion('v'))))
+
+        return actions
 
 def build_action_sequence(robot_model, ik_solver, planner):
     def _pose_for(q):
